@@ -236,7 +236,7 @@ class ProximalDE(BaseEstimator):
     
     def subsample_third_stage(self, *,
                               n_subsamples=1000,
-                              fraction=.8,
+                              fraction=.5,
                               replace=False,
                               n_jobs=-1,
                               verbose=0):
@@ -260,7 +260,7 @@ class ProximalDE(BaseEstimator):
     
     def subsample_second_stage(self, *,
                               n_subsamples=1000,
-                              fraction=.8,
+                              fraction=.5,
                               replace=False,
                               n_jobs=-1,
                               verbose=0):
@@ -285,7 +285,7 @@ class ProximalDE(BaseEstimator):
 
     def subsample_all_stages(self, *,
                              n_subsamples=1000,
-                             fraction=.8,
+                             fraction=.5,
                              replace=False,
                              n_jobs=-1,
                              verbose=0):

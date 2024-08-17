@@ -6,6 +6,7 @@ import warnings
 from crossfit import fit_predict
 from ivreg import Regularized2SLS
 from joblib import Parallel, delayed
+from inference import EmpiricalInferenceResults, InferenceResults
 warnings.simplefilter("ignore")
 
 
@@ -213,6 +214,7 @@ class ProximalDE(BaseEstimator):
         point_debiased, std_debiased, idstrength = estimate_final(Dres, Zres, Xres, Yres,
                                                                   eta, gamma)
         
+        # Storing fitted parameters and training data as properties of the class
         self.W_ = W
         self.D_ = D
         self.Z_ = Z
@@ -233,7 +235,12 @@ class ProximalDE(BaseEstimator):
         self.point_ = point_debiased
         self.std_ = std_debiased
         self.idstrength_ = idstrength
+
+        return self
     
+    def summary(self, *, alpha=0.05, value=0):
+        return InferenceResults(self.point_, self.std_).summary(alpha=alpha, value=value)
+
     def subsample_third_stage(self, *,
                               n_subsamples=1000,
                               fraction=.5,
@@ -256,7 +263,7 @@ class ProximalDE(BaseEstimator):
                                     self.eta_, self.gamma_)
             for sub in subsamples)
         points, _, _ = zip(*results)
-        return points
+        return np.array(points)
     
     def subsample_second_stage(self, *,
                               n_subsamples=1000,
@@ -281,7 +288,7 @@ class ProximalDE(BaseEstimator):
                                   random_state=None)
             for sub in subsamples)
         points, _, _, _, _, _, _ = zip(*results)
-        return points
+        return np.array(points)
 
     def subsample_all_stages(self, *,
                              n_subsamples=1000,
@@ -311,4 +318,31 @@ class ProximalDE(BaseEstimator):
                                             random_state=None)
             for sub in subsamples)
         points, _, _, _, _, _, _, _, _ = zip(*results)
-        return points
+        return np.array(points)
+
+
+    def bootstrap_inference(self, *, stage=3, n_subsamples=1000,
+                            fraction=.5, replace=False, n_jobs=-1, verbose=0):
+        '''
+        stage: one of {1, 2, 3}; whether to bootstrap from first, second or third
+            stage of the estimation process. 1 means all process is repeated on
+            the sub-sample. 2 means the residualization is not repeated, but the
+            rest is. 3 means that neither the residualization nor the estimation
+            of nuisance parameters eta and gamma is repeated. Only the final stage.
+        '''
+        if stage == 3:
+            method = self.subsample_third_stage
+        elif stage == 2:
+            method = self.subsample_second_stage
+        elif stage == 1:
+            method = self.subsample_all_stages
+        else:
+            raise AttributeError("Stage should be one of [1, 2, 3]")
+
+        point_dist = method(n_subsamples=n_subsamples,
+                            fraction=fraction,
+                            replace=replace,
+                            n_jobs=n_jobs,
+                            verbose=verbose)
+
+        return EmpiricalInferenceResults(self.point_, point_dist)

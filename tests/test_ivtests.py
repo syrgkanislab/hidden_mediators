@@ -72,11 +72,28 @@ def test_homoskedastic():
         for pw in [0, 3]:
             Z, X, Y, controls = gen_iv_data(100000, pz, px, pw, .1)
             results = weakiv_tests(Z, X, Y, controls=controls)
-            print(px, pz, pw, results[2], results[4])
-            print(px, pz, pw, results[4], results[6])
             if px == pz and px == 1:
                 assert np.allclose(results[2], results[4], atol=20)
                 assert np.allclose(results[4], results[6], atol=1e-3)
             else:
                 assert np.allclose(results[2], results[4], atol=2)
                 assert np.allclose(results[4], results[6], atol=1)
+
+def test_separation():
+    ''' Test that the tests can really separate between weak instruments
+    and strong instruments
+    '''
+
+    np.random.seed(123)
+    for (px, pz) in [(1, 1), (1, 3), (3, 3)]:
+        for pw in [0, 3]:
+            Z, X, Y, controls = gen_iv_data(10000, pz, px, pw, .02)
+            results = weakiv_tests(Z, X, Y, controls=controls)
+            assert np.all(np.less(results[2], 10))
+            assert np.all(np.less(results[4], 10))
+            assert np.all(np.less(results[6], results[8]))
+            Z, X, Y, controls = gen_iv_data(10000, pz, px, pw, .2)
+            results = weakiv_tests(Z, X, Y, controls=controls)
+            assert np.all(np.greater(results[2], 10))
+            assert np.all(np.greater(results[4], 10))
+            assert np.all(np.greater(results[6], results[8]))

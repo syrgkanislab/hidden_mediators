@@ -8,6 +8,9 @@ def _format(res, decimals):
     arr = np.round(arr, decimals)
     return arr
 
+def pvalue(zstat):
+    return norm.sf(np.abs(zstat), loc=0, scale=1) * 2
+
 class InferenceResults:
 
     def __init__(self, point, stderr):
@@ -22,7 +25,7 @@ class InferenceResults:
                norm.ppf(1 - alpha / 2, loc=self.point, scale=self.stderr)
 
     def pvalue(self, *, value=0):
-        return norm.sf(np.abs(self.zstat(value=value)), loc=0, scale=1) * 2
+        return pvalue(self.zstat(value=value))
 
     def summary(self, *, alpha=0.05, value=0, decimals=3):
         sm = Summary()

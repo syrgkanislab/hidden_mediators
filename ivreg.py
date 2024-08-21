@@ -35,18 +35,21 @@ class Regularized2SLS(BaseEstimator):
         Q = fit_predict(Z, D, self.modelcv, self.model,
                         splits, self.semi, self.multitask, self.n_jobs, self.verbose)
         # Regularized second stage
-        alpha = clone(self.modelcv).fit(Q, Y).alpha_
-        self.model_final_ = clone(self.model)
-        self.model_final_.alpha = alpha
-        self.model_final_.fit(Q, Y)
-        self.point_ = self.model_final_.coef_
+        self.model_final_ = clone(self.modelcv).fit(Q, Y)
+        self.coef_ = self.model_final_.coef_
 
+        if hasattr(self.model_final_, 'alpha_'):
+            alpha = self.model_final_.alpha_
+        else:
+            alpha = 0
+        
         # Calculating an approximate standard error, which in theory is
         # invalid. Mostly for comparison and benchmarking purposes.
         J = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha / Q.shape[0])
         Jinv = np.linalg.pinv(J)
-        epsilon = (Y - D @ self.point_).reshape(-1, 1) * Q
+        epsilon = (Y - D @ self.coef_).reshape(-1, 1) * Q
         Sigma = epsilon.T @ epsilon / epsilon.shape[0]
         Cov = Jinv @ Sigma @ Jinv.T
         self.stderr_ = np.sqrt(np.diag(Cov) / Q.shape[0])
 
+        return self

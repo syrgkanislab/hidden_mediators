@@ -6,6 +6,9 @@ from ..crossfit import fit_predict, fit_predict_single
 from .utilities import gen_iv_data
 
 def test_fit_predict():
+    ''' Test that the fit_predict functionality for different
+    input variants, mirrors exactly what we expet it to be.
+    '''
 
     n, px, pz, pw = 100, 3, 3, 0
     X, Z, Y, controls = gen_iv_data(n, px, pz, pw, .5)

@@ -85,10 +85,10 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *,
                             verbose=verbose,
                             random_state=random_state)
     ivreg.fit(DZres, DXres, Yres)
-    eta = ivreg.point_[1:].reshape(-1, 1)
-    point_pre = ivreg.point_[0]
+    eta = ivreg.coef_[1:].reshape(-1, 1)
+    point_pre = ivreg.coef_[0]
     std_pre = ivreg.stderr_[0]
-    primal_moments = DZres * (Yres - DXres @ ivreg.point_.reshape(-1, 1))
+    primal_moments = DZres * (Yres - DXres @ ivreg.coef_.reshape(-1, 1))
     primal_violation = np.linalg.norm(np.sqrt(nobs) * np.mean(primal_moments, axis=0) / np.std(primal_moments, axis=0),
                                       ord=np.inf)
 
@@ -100,7 +100,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *,
                             verbose=verbose,
                             random_state=random_state)
     ivreg.fit(Xres, Zres, Dres)
-    gamma = ivreg.point_.reshape(-1, 1)
+    gamma = ivreg.coef_.reshape(-1, 1)
     dual_moments = Xres * (Dres - Zres @ gamma)
     dual_violation = np.linalg.norm(np.sqrt(nobs) * np.mean(dual_moments, axis=0) / np.std(dual_moments, axis=0),
                                     ord=np.inf)

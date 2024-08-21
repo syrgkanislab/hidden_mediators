@@ -8,8 +8,15 @@ def _format(res, decimals):
     arr = np.round(arr, decimals)
     return arr
 
+def _format_scientific(res, decimals):
+    arr = np.array([res]) if np.isscalar(res) else res.flatten()
+    arr = np.array([np.format_float_scientific(r, precision=decimals) for r in arr])
+    arr = arr.reshape(-1, 1)
+    return arr
+
 def pvalue(zstat):
     return norm.sf(np.abs(zstat), loc=0, scale=1) * 2
+
 
 class InferenceResults:
 
@@ -34,15 +41,16 @@ class InferenceResults:
             _format(self.point, decimals),
             _format(self.stderr, decimals),
             _format(self.zstat(value=value), decimals),
-            _format(self.pvalue(value=value), decimals),
+            _format_scientific(self.pvalue(value=value), decimals),
             _format(lb, decimals),
             _format(ub, decimals)
         ))
         headers =  ['point', 'stderr', 'zstat', 'pvalue', 'ci_lower', 'ci_upper']
-        if hasattr(self.point, 'len'):
-            index = [f"param{t}" for t in range(len(self.point))]
-        else:
+        if len(self.point.shape) == 0:
             index = ['param']
+        else:
+            index = [f"param{t}" for t in range(len(self.point))]
+
         sm.tables.append(SimpleTable(res, headers, index, "Parameter Summary"))
         return sm
 
@@ -84,15 +92,16 @@ class EmpiricalInferenceResults:
             _format(self.point, decimals),
             _format(self.stderr, decimals),
             _format(self.zstat(value=value), decimals),
-            _format(self.pvalue(value=value), decimals),
+            _format_scientific(self.pvalue(value=value), decimals),
             _format(lb, decimals),
             _format(ub, decimals)
         ))
         headers =  ['point', 'stderr', 'zstat', 'pvalue', 'ci_lower', 'ci_upper']
-        if hasattr(self.point, 'len'):
-            index = [f"param{t}" for t in range(len(self.point))]
-        else:
+        if len(self.point.shape) == 0:
             index = ['param']
+        else:
+            index = [f"param{t}" for t in range(len(self.point))]
+
         sm.tables.append(SimpleTable(res, headers, index, "Parameter Summary"))
         return sm
     

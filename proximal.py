@@ -15,11 +15,10 @@ warnings.simplefilter("ignore")
 
 
 def residualizeW(W, D, Z, X, Y, *, categorical=True,
-            cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
-            random_state=None):
+                 cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                 random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
     and lasso regression models.
-
     '''
     if len(D.shape) == 1:
         D = D.reshape(-1, 1)

@@ -1,6 +1,18 @@
 import numpy as np
 import pandas as pd
 from formulaic import Formula
+import os
+
+def _get_tests_dir():
+    path_to_current_file = os.path.realpath(__file__)
+    return os.path.dirname(path_to_current_file)
+
+def _get_tests_data_dir():
+    return os.path.join(_get_tests_dir(), "data")
+
+def _dpath(fname):
+    return os.path.join(_get_tests_data_dir(), fname)
+
 
 def gen_kmenta_data():
     ''' IV data described in the ivreg R package
@@ -22,7 +34,7 @@ def gen_kmenta_data():
         correspond to control variables, i.e. Z, X are identical
         on these indices.
     '''
-    df = pd.read_csv("tests/data/Kmenta.csv")
+    df = pd.read_csv(_dpath("Kmenta.csv"))
     Y = df['Q'].values
     X = df[['D', 'P']].values
     Z = df[['D', 'F', 'A']].values
@@ -31,7 +43,7 @@ def gen_kmenta_data():
     return Z, X, Y, labels, controls
 
 def gen_schooling_returns_data():
-    df = pd.read_csv("tests/data/SchoolingReturns.csv")
+    df = pd.read_csv(_dpath("SchoolingReturns.csv"))
     exp2 = Formula('0 + poly(experience, 2)').get_model_matrix(df)
     exp2 = exp2.rename({'poly(experience, 2)[1]': 'experience1', 'poly(experience, 2)[2]': 'experience2'}, axis=1)
     age2 = Formula('0 + poly(age, 2)').get_model_matrix(df)

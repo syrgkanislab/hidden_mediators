@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.linear_model import LinearRegression, LassoCV, Lasso, MultiTaskLassoCV, MultiTaskLasso
 from sklearn.model_selection import cross_val_predict
 import pytest
-from ..crossfit import fit_predict, fit_predict_single
+from ..crossfit import fit_predict
 from .utilities import gen_iv_data
 
 def test_fit_predict():

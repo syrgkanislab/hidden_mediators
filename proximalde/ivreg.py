@@ -1,8 +1,8 @@
 import numpy as np
 from sklearn.base import clone, BaseEstimator
-from crossfit import fit_predict
-from sklearn.linear_model import RidgeCV, Ridge
 from sklearn.model_selection import check_cv
+from .crossfit import fit_predict
+
 
 class Regularized2SLS(BaseEstimator):
     ''' A general purpose regularized 2SLS estimator that

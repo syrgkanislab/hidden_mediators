@@ -3,14 +3,14 @@ from sklearn.linear_model import LassoCV, Lasso, MultiTaskLassoCV, MultiTaskLass
 from sklearn.model_selection import check_cv
 from sklearn.base import BaseEstimator
 import warnings
-from crossfit import fit_predict
-from ivreg import Regularized2SLS
 from joblib import Parallel, delayed
-from inference import EmpiricalInferenceResults, NormalInferenceResults, pvalue
-from ivtests import weakiv_tests
-from diagnostics import IVDiagnostics
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
+from .crossfit import fit_predict
+from .ivreg import Regularized2SLS
+from .inference import EmpiricalInferenceResults, NormalInferenceResults, pvalue
+from .ivtests import weakiv_tests
+from .diagnostics import IVDiagnostics
 warnings.simplefilter("ignore")
 
 

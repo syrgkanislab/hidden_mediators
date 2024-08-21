@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import matplotlib.pyplot as plt
-from .utilities import gen_kmenta_data, gen_iv_data
+from .utilities import gen_kmenta_data, gen_iv_data, _dpath
 from ..diagnostics import IVDiagnostics
 
 
@@ -16,27 +16,27 @@ def test_ivreg_r_compatibility_kmenta():
     Z, X, Y, _, _ = gen_kmenta_data()
     diag = IVDiagnostics(add_constant=True).fit(Z, X, Y)
 
-    assert np.allclose(pd.read_csv("tests/data/cookd_kmenta_ivreg.csv").iloc[:, 1].values, diag.cookd_)
-    assert np.allclose(pd.read_csv("tests/data/coefficients_kmenta_ivreg.csv").iloc[:, 1].values, diag.point_)
-    assert np.allclose(pd.read_csv("tests/data/dfbeta_kmenta_ivreg.csv").iloc[:, 1:].values, diag.dfbeta_)
-    assert np.allclose(pd.read_csv("tests/data/dffits_kmenta_ivreg.csv").iloc[:, 1].values, diag.dffits_)
-    assert np.allclose(pd.read_csv("tests/data/hatvalues_default_kmenta_ivreg.csv").iloc[:, 1].values, diag.hatvalues2_)
-    assert np.allclose(pd.read_csv("tests/data/hatvalues_kmenta_ivreg.csv").iloc[:, 1].values, diag.hatvalues4_)
-    assert np.allclose(pd.read_csv("tests/data/hatvalues_kmenta_ivreg.csv").iloc[:, 2].values, diag.hatvalues2_)
-    assert np.allclose(pd.read_csv("tests/data/residuals_kmenta_ivreg.csv").iloc[:, 1].values, diag.epsilon_)
-    assert np.allclose(pd.read_csv("tests/data/rstudent_kmenta_ivreg.csv").iloc[:, 1].values, diag.rstudent_)
-    assert np.allclose(pd.read_csv("tests/data/smi_kmenta_ivreg.csv").iloc[:, 1].values, diag.smi_)
+    assert np.allclose(pd.read_csv(_dpath("cookd_kmenta_ivreg.csv")).iloc[:, 1].values, diag.cookd_)
+    assert np.allclose(pd.read_csv(_dpath("coefficients_kmenta_ivreg.csv")).iloc[:, 1].values, diag.point_)
+    assert np.allclose(pd.read_csv(_dpath("dfbeta_kmenta_ivreg.csv")).iloc[:, 1:].values, diag.dfbeta_)
+    assert np.allclose(pd.read_csv(_dpath("dffits_kmenta_ivreg.csv")).iloc[:, 1].values, diag.dffits_)
+    assert np.allclose(pd.read_csv(_dpath("hatvalues_default_kmenta_ivreg.csv")).iloc[:, 1].values, diag.hatvalues2_)
+    assert np.allclose(pd.read_csv(_dpath("hatvalues_kmenta_ivreg.csv")).iloc[:, 1].values, diag.hatvalues4_)
+    assert np.allclose(pd.read_csv(_dpath("hatvalues_kmenta_ivreg.csv")).iloc[:, 2].values, diag.hatvalues2_)
+    assert np.allclose(pd.read_csv(_dpath("residuals_kmenta_ivreg.csv")).iloc[:, 1].values, diag.epsilon_)
+    assert np.allclose(pd.read_csv(_dpath("rstudent_kmenta_ivreg.csv")).iloc[:, 1].values, diag.rstudent_)
+    assert np.allclose(pd.read_csv(_dpath("smi_kmenta_ivreg.csv")).iloc[:, 1].values, diag.smi_)
 
     diag = IVDiagnostics(add_constant=True).fit(Z[:, 1], X[:, 1], Y.flatten())
 
-    assert np.allclose(pd.read_csv("tests/data/cookd_1d_kmenta_ivreg.csv").iloc[:, 1].values, diag.cookd_)
+    assert np.allclose(pd.read_csv(_dpath("cookd_1d_kmenta_ivreg.csv")).iloc[:, 1].values, diag.cookd_)
     
     
     diag = IVDiagnostics(add_constant=False, has_constant=True)
     diag.fit(np.hstack([np.ones((Z.shape[0], 1)), Z[:, [1]]]),
              np.hstack([np.ones((X.shape[0], 1)), X[:, [1]]]), Y.flatten())
 
-    assert np.allclose(pd.read_csv("tests/data/cookd_1d_kmenta_ivreg.csv").iloc[:, 1].values, diag.cookd_)
+    assert np.allclose(pd.read_csv(_dpath("cookd_1d_kmenta_ivreg.csv")).iloc[:, 1].values, diag.cookd_)
 
 
 def test_exact_influence():

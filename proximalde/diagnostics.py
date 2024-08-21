@@ -3,7 +3,7 @@ import pandas as pd
 import scipy.stats as stats
 from statsmodels.graphics.utils import create_mpl_ax
 from seaborn_qqplot import pplot
-from influence import influence_plot
+from .influence import influence_plot
 
 def _remove_diag(x):
     x_no_diag = np.ndarray.flatten(x)

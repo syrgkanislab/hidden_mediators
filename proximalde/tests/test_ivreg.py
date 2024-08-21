@@ -1,8 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from tests.utilities import gen_iv_data
-from ivreg import Regularized2SLS
 from sklearn.linear_model import RidgeCV, Ridge
+from .utilities import gen_iv_data
 from ..ivreg import *
 
 def test_functional_equivalency():

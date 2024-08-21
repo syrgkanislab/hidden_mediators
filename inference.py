@@ -18,7 +18,7 @@ def pvalue(zstat):
     return norm.sf(np.abs(zstat), loc=0, scale=1) * 2
 
 
-class InferenceResults:
+class NormalInferenceResults:
 
     def __init__(self, point, stderr):
         self.point = np.array(point)
@@ -66,6 +66,17 @@ class EmpiricalInferenceResults:
         return np.std(self.point_dist, axis=0)
     
     def conf_int(self, *, alpha=0.05, pivot=False):
+        ''' Bootstrap confidence interval
+
+        Parameters
+        ----------
+        alpha : float, optional (default=0.05)
+            Confidence level
+        pivot : bool, optional (default=False)
+            Whether to use pivot bootstrap CI or percentile CI
+            TODO. Implement other types of bootstrap CI versions
+            similar to the boot.ci package in R.
+        '''
         lower = 100 * alpha / 2
         upper = 100 * (1 - alpha / 2)
         if pivot:
@@ -76,27 +87,34 @@ class EmpiricalInferenceResults:
                     np.percentile(self.point_dist, upper, axis=0))
     
     def pvalue(self, *, value=0):
-        pvalue = np.minimum((self.point_dist <= value).sum(axis=0),
-                            (self.point_dist >= value).sum(axis=0)) / self.point_dist.shape[0]
+        ''' pivot based p-value of the hypothesis that `param=value`
+
+        TODO. p-values based on the bootstrap is more complicated than
+        what we did here. See e.g. here for more options:
+        https://stats.stackexchange.com/questions/20701/computing-p-value-using-bootstrap-with-r
+        Ideally match the boot.ci results from R.
+        '''
+        pvalue = 2 * np.minimum((self.point_dist - self.point + value <= self.point).mean(axis=0),
+                                (self.point_dist - self.point + value >= self.point).mean(axis=0))
         # in the degenerate case where every point in the distribution
         # is equal to the value tested, return nan
         return np.where(np.all(self.point_dist == value, axis=0), np.nan, pvalue)
     
-    def zstat(self, *, value=0):
-        return (self.point - value) / self.stderr
-    
     def summary(self, *, alpha=0.05, pivot=False, value=0, decimals=3):
+        ''' Summarize all the inference results.
+
+        TODO. Update presentation of p-value if other variants of p-values
+        are also implemented.
+        '''
         sm = Summary()
         lb, ub = self.conf_int(alpha=alpha, pivot=pivot)
         res = np.hstack((
             _format(self.point, decimals),
             _format(self.stderr, decimals),
-            _format(self.zstat(value=value), decimals),
-            _format_scientific(self.pvalue(value=value), decimals),
             _format(lb, decimals),
             _format(ub, decimals)
         ))
-        headers =  ['point', 'stderr', 'zstat', 'pvalue', 'ci_lower', 'ci_upper']
+        headers =  ['point', 'stderr', 'ci_lower', 'ci_upper']
         if len(self.point.shape) == 0:
             index = ['param']
         else:

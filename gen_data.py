@@ -7,7 +7,13 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g):
     pw: dimension of controls
     pz: dimension of treatment proxies ("instruments")
     px: dimension of outcome proxies ("treatments")
-    a, b, c, d, e, f, g: effect parameters in data generating process
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, scipy.special.expit(2 * W[:, 0]))

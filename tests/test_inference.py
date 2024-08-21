@@ -16,7 +16,7 @@ def test_normal_inference():
     stderr = np.sqrt(res.cov_params()).flatten()
     point = res.params
 
-    inf = InferenceResults(point, stderr)
+    inf = NormalInferenceResults(point, stderr)
     assert np.allclose(inf.pvalue(), res.pvalues, atol=1e-20)
     assert np.allclose(inf.zstat(), res.tvalues)
     lb, ub = inf.conf_int(alpha=.1)
@@ -34,7 +34,7 @@ def test_normal_inference():
     assert tbl[1][5].data == f'{np.round(inf.conf_int(alpha=0.1)[0][0], dc)}'
     assert tbl[1][6].data == f'{np.round(inf.conf_int(alpha=0.1)[1][0], dc)}'
 
-    inf2 = InferenceResults(np.array([point[0], point[0]]), np.array([stderr[0], stderr[0]]))
+    inf2 = NormalInferenceResults(np.array([point[0], point[0]]), np.array([stderr[0], stderr[0]]))
     assert np.allclose(inf.pvalue(), inf2.pvalue()[1], atol=1e-20)
     assert np.allclose(inf.zstat(), inf2.zstat()[1])
     ci = inf2.conf_int(alpha=.1)
@@ -50,7 +50,7 @@ def test_normal_inference():
     assert tbl2[1][2].data == f'{np.round(inf.stderr, dc)[0]}'
     assert tbl2[2][2].data == f'{np.round(inf.stderr, dc)[0]}'
 
-    inf3 = InferenceResults(point[0], stderr[0])
+    inf3 = NormalInferenceResults(point[0], stderr[0])
     assert np.isclose(inf.pvalue()[0], inf3.pvalue(), atol=1e-20)
     assert np.isclose(inf.zstat()[0], inf3.zstat())
     ci = inf3.conf_int(alpha=.1)
@@ -62,3 +62,47 @@ def test_normal_inference():
     assert tbl3[1][0].data == 'param'
     assert tbl3[1][1].data == f'{np.round(inf.point[0], dc)}'
     assert tbl3[1][2].data == f'{np.round(inf.stderr[0], dc)}'
+
+
+def test_empirical_inference():
+    ''' Test that empirical inference produces comparable results
+    as advertised, when data distribution is actually a Normal,
+    by comparing to the `NormalInferenceResults` outputs.
+    '''
+    np.random.seed(123)
+    stderr = np.array([1])
+    point = np.array([2])
+    point_dist = np.random.normal(point[0], stderr[0], size=(1000000, 1))
+
+    inf = NormalInferenceResults(point, stderr)
+    inf2 = EmpiricalInferenceResults(point, point_dist)
+    assert np.allclose(inf.stderr, inf2.stderr, atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[0], inf2.conf_int(alpha=.1)[0], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[1], inf2.conf_int(alpha=.1)[1], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[0], inf2.conf_int(alpha=.1, pivot=True)[0], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[1], inf2.conf_int(alpha=.1, pivot=True)[1], atol=1e-2)
+    assert np.allclose(inf.pvalue(value=1), inf2.pvalue(value=1), atol=1e-2)
+
+    tbl2 = inf2.summary(alpha=0.1, decimals=3).tables[0]
+    assert tbl2[1][0].data == 'param0'
+    assert tbl2[1][1].data == 2
+    assert np.allclose(tbl2[1][2].data, stderr[0], atol=1e-2)
+    assert np.allclose(tbl2[1][3].data, np.round(inf2.conf_int(alpha=0.1)[0], decimals=3))
+    assert np.allclose(tbl2[1][4].data, np.round(inf2.conf_int(alpha=0.1)[1], decimals=3))
+
+    
+    inf = NormalInferenceResults(point[0], stderr[0])
+    inf2 = EmpiricalInferenceResults(point[0], point_dist[:, 0])
+    assert np.allclose(inf.stderr, inf2.stderr, atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[0], inf2.conf_int(alpha=.1)[0], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[1], inf2.conf_int(alpha=.1)[1], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[0], inf2.conf_int(alpha=.1, pivot=True)[0], atol=1e-2)
+    assert np.allclose(inf.conf_int(alpha=.1)[1], inf2.conf_int(alpha=.1, pivot=True)[1], atol=1e-2)
+    assert np.allclose(inf.pvalue(value=1), inf2.pvalue(value=1), atol=1e-2)
+
+    tbl2 = inf2.summary(alpha=0.1, decimals=3).tables[0]
+    assert tbl2[1][0].data == 'param'
+    assert tbl2[1][1].data == 2
+    assert np.allclose(tbl2[1][2].data, stderr[0], atol=1e-2)
+    assert np.allclose(tbl2[1][3].data, np.round(inf2.conf_int(alpha=0.1)[0], decimals=3))
+    assert np.allclose(tbl2[1][4].data, np.round(inf2.conf_int(alpha=0.1)[1], decimals=3))

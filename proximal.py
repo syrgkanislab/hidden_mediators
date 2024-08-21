@@ -6,7 +6,7 @@ import warnings
 from crossfit import fit_predict
 from ivreg import Regularized2SLS
 from joblib import Parallel, delayed
-from inference import EmpiricalInferenceResults, InferenceResults, pvalue
+from inference import EmpiricalInferenceResults, NormalInferenceResults, pvalue
 from ivtests import weakiv_tests
 from diagnostics import IVDiagnostics
 from statsmodels.iolib.table import SimpleTable
@@ -267,7 +267,7 @@ class ProximalDE(BaseEstimator):
 
     def conf_int(self, *, alpha=0.05):
         self._check_is_fitted()
-        return InferenceResults(self.point_, self.std_).conf_int(alpha=alpha)
+        return NormalInferenceResults(self.point_, self.std_).conf_int(alpha=alpha)
 
     def robust_conf_int(self, *, lb, ub, ngrid=1000, alpha=0.05):
         ''' Confidence intervals that are robust to weak identification.
@@ -294,7 +294,7 @@ class ProximalDE(BaseEstimator):
     def summary(self, *, alpha=0.05, value=0, decimals=4):
         self._check_is_fitted()
         # target parameter summary
-        sm = InferenceResults(self.point_, self.std_).summary(alpha=alpha, value=value)
+        sm = NormalInferenceResults(self.point_, self.std_).summary(alpha=alpha, value=value)
         # nuisance summary
         res = np.array([self.r2D_, self.r2Z_, self.r2X_, self.r2Y_]).reshape(1, -1)
         res = np.round(res, decimals)

@@ -34,13 +34,18 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     # Residualizing W out of D, Z, X, Y, using cross-fitting (or semi-cross-fitting)
     # and a Lasso model with regularization chosen via cross-validation
     #####
+
     cv = check_cv(cv, classifier=categorical)
     if hasattr(cv, 'random_state'):
         cv.random_state = random_state
+
     if multitask:
-        model, modelcv = MultiTaskLasso(), MultiTaskLassoCV()
+        model = MultiTaskLasso(random_state=random_state)
+        modelcv = MultiTaskLassoCV(random_state=random_state)
     else:
-        model, modelcv = Lasso(), LassoCV()
+        model = Lasso(random_state=random_state)
+        modelcv = LassoCV(random_state=random_state)
+
     splits = list(cv.split(W, D))
     print("Residualizing D...")
     Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask, n_jobs, verbose)

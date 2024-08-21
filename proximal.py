@@ -120,7 +120,7 @@ def estimate_final(Dres, Zres, Xres, Yres, eta, gamma):
     Jdebiased = Dbar.T @ Dres / Dbar.shape[0]
     Jdebiasedinv = 1 / Jdebiased
     point_debiased = Jdebiasedinv @ (Dbar.T @ Ybar / Dbar.shape[0])
-    inf = - (Ybar - Dres @ point_debiased) * Dbar * Jdebiasedinv
+    inf = (Ybar - Dres @ point_debiased) * Dbar * Jdebiasedinv
     std_debiased = np.sqrt(np.mean(inf**2) / inf.shape[0])
 
     # standardized strength of jacobian that goes into the denominator

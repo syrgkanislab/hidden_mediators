@@ -4,3 +4,4 @@ scipy
 formulaic
 patsy
 statsmodels
+seaborn_qqplot

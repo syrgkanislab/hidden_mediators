@@ -22,7 +22,7 @@ def gen_kmenta_data():
         correspond to control variables, i.e. Z, X are identical
         on these indices.
     '''
-    df = pd.read_csv("tests/Kmenta.csv")
+    df = pd.read_csv("tests/data/Kmenta.csv")
     Y = df['Q'].values
     X = df[['D', 'P']].values
     Z = df[['D', 'F', 'A']].values
@@ -31,7 +31,7 @@ def gen_kmenta_data():
     return Z, X, Y, labels, controls
 
 def gen_schooling_returns_data():
-    df = pd.read_csv("tests/SchoolingReturns.csv")
+    df = pd.read_csv("tests/data/SchoolingReturns.csv")
     exp2 = Formula('0 + poly(experience, 2)').get_model_matrix(df)
     exp2 = exp2.rename({'poly(experience, 2)[1]': 'experience1', 'poly(experience, 2)[2]': 'experience2'}, axis=1)
     age2 = Formula('0 + poly(age, 2)').get_model_matrix(df)
@@ -49,6 +49,9 @@ def gen_schooling_returns_data():
     return Z, X, Y, controls
 
 def gen_iv_data(n, pz, px, pw, ivstrength):
+    if pz < px:
+        raise AttributeError("More instruments than treatments needed")
+
     U = np.random.normal(0, 1, size=(n, 1))
 
     if pw == 0:
@@ -63,7 +66,8 @@ def gen_iv_data(n, pz, px, pw, ivstrength):
         betawy = np.ones((pw, 1)) / pw
 
     Z = W @ betawz + np.random.normal(0, 1, size=(n, pz))
-    gamma = np.ones((pz, px)) / pz
+    gamma = np.zeros((pz, px))
+    gamma[:px, :px] = np.eye(px)
     X = W @ betawx + ivstrength * Z @ gamma + (1 - ivstrength) * U
     beta = np.ones((px, 1)) / px
     Y = X @ beta + W @ betawy + U

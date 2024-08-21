@@ -1,8 +1,9 @@
 import numpy as np
+import pandas as pd
 import scipy.stats as stats
 from statsmodels.graphics.utils import create_mpl_ax
+from seaborn_qqplot import pplot
 from influence import influence_plot
-from statsmodels.compat.python import lrange
 
 def _remove_diag(x):
     x_no_diag = np.ndarray.flatten(x)
@@ -30,7 +31,7 @@ def _exact_influence_tsls(X, Z, Y, SigmaZinv, point):
     u += (xmrAx / denom) * X
     g = u * ((Y - Z @ a) - (Y - R @ point)) + (u + j) * (Y - X @ point)
     
-    return g @ Ainv.T
+    return - g @ Ainv.T
 
 class IVDiagnostics:
 
@@ -89,8 +90,9 @@ class IVDiagnostics:
         Jinv = np.linalg.pinv(J)
         point_alt = Jinv @ Z.T @ Y
         if X.shape[1] == Z.shape[1]:
-            assert np.isclose(np.linalg.norm(point - point_alt, ord=np.inf), 0), \
-                "Just-identified setting but 2SLS different from moment solution"
+            assert np.isclose(np.linalg.norm(point - point_alt, ord=np.inf), 0, atol=1e-4), \
+                ("Just-identified setting but 2SLS different from moment solution." 
+                 "Most probably IV is under-identified")
 
         ######
         # Robustness diagnostics
@@ -101,7 +103,7 @@ class IVDiagnostics:
         PJinv = np.linalg.pinv(Xhat.T @ X)  # jacobian of moment
 
         # asymptotic influence function
-        inf = - moment @ PJinv.T
+        inf = moment @ PJinv.T
 
         # Exact influence of a data point
         exact_inf = _exact_influence_tsls(X, Z, Y, SigmaZinv, point)
@@ -121,7 +123,7 @@ class IVDiagnostics:
         # If sample size not too large, calculate the standard
         # deviation of the "deleted residuals". Otherwise, use s.
         if Z.shape[0] <= 10000:
-            resmi = epsilon.T - dfbeta @ X.T
+            resmi = epsilon.T + dfbeta @ X.T
             resmi = _remove_diag(resmi)
             smi = np.std(resmi, axis=1, keepdims=True, ddof=X.shape[1])
         else:
@@ -182,6 +184,9 @@ class IVDiagnostics:
 
         return self
 
+    def _check_is_fitted(self):
+        if not hasattr(self, 'point_'):
+            raise AttributeError("Object is not fitted!")
 
     def influence_plot(self, *, influence_measure='cook',
                        hatvalues_type=2, labels=None,
@@ -223,6 +228,7 @@ class IVDiagnostics:
             are included in the plot.
         ax: figures axis handle
         '''
+        self._check_is_fitted()
         if hatvalues_type == 1:
             leverage = self.hatvalues1_
         elif hatvalues_type == 2:
@@ -242,11 +248,11 @@ class IVDiagnostics:
             inf_thr = stats.f.ppf(f_cook_thr, self.df_, self.nobs_ - self.df_)
         elif influence_measure == 'l2influence':
             inf = self.l2influence_
-            inf_name = f'$\ell_2$ Asymptotic Influence'
+            inf_name = f'$\\ell_2$ Asymptotic Influence'
             inf_thr = l2inf_thr / self.nobs_
         elif influence_measure == 'l2exact_influence':
             inf = self.l2exact_influence_
-            inf_name = f'$\ell_2$ Exact Influence'
+            inf_name = f'$\\ell_2$ Exact Influence'
             inf_thr = l2inf_thr / self.nobs_
         else:
             raise AttributeError("Unknown influence measure")
@@ -269,12 +275,14 @@ class IVDiagnostics:
             to determine if the cook
         ax: figures axis handle
         '''
+        self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)
         ax.hist(self.cookd_)
         threshold = stats.f.ppf(f_cook_thr, self.df_, self.nobs_ - self.df_)
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
     
+
     def l2influence_plot(self, *, l2inf_thr=10, ax=None):
         '''
         l2inf_thr: float, optional (default=10)
@@ -282,11 +290,13 @@ class IVDiagnostics:
             for large influence will be set to inf_thr / nobs.
         ax: figures axis handle
         '''
+        self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)
         ax.hist(self.l2influence_)
         threshold = l2inf_thr / self.nobs_
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
+
 
     def l2exact_influence_plot(self, *, l2inf_thr=10, ax=None):
         '''
@@ -295,9 +305,18 @@ class IVDiagnostics:
             for large influence will be set to inf_thr / nobs.
         ax: figures axis handle
         '''
+        self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)
         ax.hist(self.l2exact_influence_)
         threshold = l2inf_thr / self.nobs_
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
     
+    def qqplot(self,):
+        ''' Q-Q plot of the studentized residuals against theoretical student-t
+        quantiles. Can be a diagnostic for outcome outliers.
+        '''
+        self._check_is_fitted()
+        pplot(pd.DataFrame({'Studentized Residuals': self.rstudent_}),
+              x='Studentized Residuals', y=stats.t, kind='qq', height=4, aspect=1.5,
+              display_kws={"identity":False, "fit":True, "reg":True, "ci":0.025})

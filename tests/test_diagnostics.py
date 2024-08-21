@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import matplotlib.pyplot as plt
-from .utilities import gen_kmenta_data, gen_schooling_returns_data, gen_iv_data
+from .utilities import gen_kmenta_data, gen_iv_data
 from ..diagnostics import IVDiagnostics
 
 

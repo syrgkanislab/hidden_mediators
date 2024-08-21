@@ -193,7 +193,20 @@ class IVDiagnostics:
                        size=48, alpha_resid=0.1,
                        f_cook_thr=.2, l2inf_thr=10,
                        plot_alpha=0.75, npoints=None, ax=None):
-        '''
+        ''' Scatter plot of samples with leverage scores on x-axis and studentized
+        residuals on y-axis. Size and transparency of point is controlled by the
+        influence measure, as also designated in a colorbar. Horizontal lines are
+        added at +/- 2, above which denotes large studentized residuals. Vertical
+        lines are added at twice and three times the mean leverage score across all
+        training samples. If npoints is used, only samples with either a large
+        leverage score, or a large residual, or a large `influence_measure` are being
+        plotted. The largeness of residuals is controlled by `alpha_resid`. The
+        largeness of influence measures is controlled by either `f_cook_thr` or
+        `l2inf_thr`, dependent on the type of influence measure. Leverage scores
+        are considered large if they are at least `2. * (self.df_ + 1) / self.nobs_`.
+
+        Parameters
+        ----------
         influence_measure: {'cook', 'l2influence', 'l2exact_influence'}, (default='cook')
             measure to use for the size of each point, 'cook' means
             cook's distance. 'influence' means the l2 norm of the asymptotic
@@ -227,6 +240,10 @@ class IVDiagnostics:
             to the influence measure, leverage score and standardized residual
             are included in the plot.
         ax: figures axis handle
+
+        Returns
+        -------
+        fig : figure
         '''
         self._check_is_fitted()
         if hatvalues_type == 1:
@@ -269,11 +286,19 @@ class IVDiagnostics:
 
 
     def cookd_plot(self, *, f_cook_thr=.2, ax=None):
-        '''
+        ''' Histogram plot of Cook's Distance values with a threshold
+        vertical line for largeness.
+
+        Parameters
+        ----------
         f_cook_thr: float in [0, 1], optional (default=.2)
             a f-distribution percentile threshold of f_cook_thr will be used
             to determine if the cook
         ax: figures axis handle
+
+        Returns
+        -------
+        fig : figure
         '''
         self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)
@@ -284,11 +309,19 @@ class IVDiagnostics:
     
 
     def l2influence_plot(self, *, l2inf_thr=10, ax=None):
-        '''
+        ''' Histogram plot of Asymptotic Influence values with a threshold
+        vertical line for largeness.
+
+        Parameters
+        ----------
         l2inf_thr: float, optional (default=10)
             if l2influence or l2exact_influence are used, then the threshold
             for large influence will be set to inf_thr / nobs.
         ax: figures axis handle
+
+        Returns
+        -------
+        fig : figure
         '''
         self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)
@@ -299,11 +332,19 @@ class IVDiagnostics:
 
 
     def l2exact_influence_plot(self, *, l2inf_thr=10, ax=None):
-        '''
+        ''' Histogram plot of Exact Leave-one-out Influence values
+        with a threshold vertical line for largeness.
+
+        Parameters
+        ----------
         l2inf_thr: float, optional (default=10)
             if l2influence or l2exact_influence are used, then the threshold
             for large influence will be set to inf_thr / nobs.
         ax: figures axis handle
+
+        Returns
+        -------
+        fig : figure
         '''
         self._check_is_fitted()
         fig, ax = create_mpl_ax(ax)

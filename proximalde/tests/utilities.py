@@ -3,12 +3,15 @@ import pandas as pd
 from formulaic import Formula
 import os
 
+
 def _get_tests_dir():
     path_to_current_file = os.path.realpath(__file__)
     return os.path.dirname(path_to_current_file)
 
+
 def _get_tests_data_dir():
     return os.path.join(_get_tests_dir(), "data")
+
 
 def _dpath(fname):
     return os.path.join(_get_tests_data_dir(), fname)
@@ -42,10 +45,12 @@ def gen_kmenta_data():
     controls = np.array([0])
     return Z, X, Y, labels, controls
 
+
 def gen_schooling_returns_data():
     df = pd.read_csv(_dpath("SchoolingReturns.csv"))
     exp2 = Formula('0 + poly(experience, 2)').get_model_matrix(df)
-    exp2 = exp2.rename({'poly(experience, 2)[1]': 'experience1', 'poly(experience, 2)[2]': 'experience2'}, axis=1)
+    exp2 = exp2.rename({'poly(experience, 2)[1]': 'experience1',
+                        'poly(experience, 2)[2]': 'experience2'}, axis=1)
     age2 = Formula('0 + poly(age, 2)').get_model_matrix(df)
     age2 = age2.rename({'poly(age, 2)[1]': 'age1',
                         'poly(age, 2)[2]': 'age2'}, axis=1)
@@ -53,12 +58,15 @@ def gen_schooling_returns_data():
     dm.drop(['ethnicity_other', 'smsa_no', 'south_no', 'nearcollege_no'], axis=1)
     df = pd.concat([df, dm, exp2, age2], axis=1)
     Y = np.log(df['wage'].values)
-    Xdf = df[['ethnicity_afam', 'smsa_yes', 'south_yes', 'education', 'experience1', 'experience2']]
+    Xdf = df[['ethnicity_afam', 'smsa_yes', 'south_yes',
+              'education', 'experience1', 'experience2']]
     X = Xdf.values.astype(np.float64)
-    Zdf = df[['ethnicity_afam', 'smsa_yes', 'south_yes', 'nearcollege_yes', 'age1', 'age2']]
+    Zdf = df[['ethnicity_afam', 'smsa_yes', 'south_yes',
+              'nearcollege_yes', 'age1', 'age2']]
     Z = Zdf.values.astype(np.float64)
     controls = np.array([0, 1, 2])
     return Z, X, Y, controls
+
 
 def gen_iv_data(n, pz, px, pw, ivstrength):
     if pz < px:
@@ -88,4 +96,3 @@ def gen_iv_data(n, pz, px, pw, ivstrength):
         return Z, X, Y, None
 
     return np.hstack([W, Z]), np.hstack([W, X]), Y, np.arange(pw)
-

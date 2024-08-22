@@ -30,8 +30,7 @@ def test_ivreg_r_compatibility_kmenta():
     diag = IVDiagnostics(add_constant=True).fit(Z[:, 1], X[:, 1], Y.flatten())
 
     assert np.allclose(pd.read_csv(_dpath("cookd_1d_kmenta_ivreg.csv")).iloc[:, 1].values, diag.cookd_)
-    
-    
+
     diag = IVDiagnostics(add_constant=False, has_constant=True)
     diag.fit(np.hstack([np.ones((Z.shape[0], 1)), Z[:, [1]]]),
              np.hstack([np.ones((X.shape[0], 1)), X[:, [1]]]), Y.flatten())
@@ -54,6 +53,7 @@ def test_exact_influence():
                 inds = np.delete(inds, i)
                 diag2 = IVDiagnostics(add_constant=True).fit(Z[inds], X[inds], Y[inds])
                 assert np.allclose(diag.point_ - diag2.point_, diag.exact_influence_[i])
+
 
 def test_exact_vs_asymptotic_influence():
     ''' Test that in large samples, the asymptotic influence
@@ -99,6 +99,7 @@ def test_very_large_sample_sigma_approx():
     sigma = np.std(diag.epsilon_, ddof=X.shape[1])
     assert np.allclose(diag.smi_, sigma)
 
+
 def test_influence_plot():
     ''' Test that all input variants to influence plot run and
     all wrong input variants fail.
@@ -108,6 +109,7 @@ def test_influence_plot():
 
     with pytest.raises(AttributeError) as e_info:
         diag.influence_plot()
+    print(e_info)
 
     diag = diag.fit(Z, X, Y)
 
@@ -119,78 +121,87 @@ def test_influence_plot():
     assert fig.axes[1].get_ylabel() == '$\\ell_2$ Exact Influence'
     with pytest.raises(AttributeError) as e_info:
         diag.influence_plot(influence_measure='adsf')
-    
+    print(e_info)
+
     with pytest.raises(AttributeError) as e_info:
         diag.influence_plot(influence_measure='cook', hatvalues_type=0)
-    
+    print(e_info)
+
     for i in np.arange(1, 6):
         diag.influence_plot(hatvalues_type=i)
-    
+
     diag.influence_plot(labels=np.arange(X.shape[0]))
 
     diag.influence_plot(npoints=10)
-    
+
     _, ax = plt.subplots(nrows=2, ncols=2)
-    diag.influence_plot(npoints=10, ax=ax[0,0])
+    diag.influence_plot(npoints=10, ax=ax[0, 0])
+
 
 def test_qqplot():
     ''' Test that qqplot runs
     '''
     Z, X, Y, _, _ = gen_kmenta_data()
     diag = IVDiagnostics(add_constant=True)
-    
+
     with pytest.raises(AttributeError) as e_info:
         diag.influence_plot()
+    print(e_info)
 
     diag = diag.fit(Z, X, Y)
 
     diag.qqplot()
+
 
 def test_cookd_plot():
     ''' Test that cook histogram plot runs
     '''
     Z, X, Y, _, _ = gen_kmenta_data()
     diag = IVDiagnostics(add_constant=True)
-    
+
     with pytest.raises(AttributeError) as e_info:
         diag.cookd_plot()
+    print(e_info)
 
     diag = diag.fit(Z, X, Y)
 
     diag.cookd_plot()
-    
+
     _, ax = plt.subplots(nrows=2, ncols=2)
     diag.cookd_plot(ax=ax[0, 0])
+
 
 def test_l2influence_plot():
     ''' Test that cook histogram plot runs
     '''
     Z, X, Y, _, _ = gen_kmenta_data()
     diag = IVDiagnostics(add_constant=True)
-    
+
     with pytest.raises(AttributeError) as e_info:
         diag.l2influence_plot()
+    print(e_info)
 
     diag = diag.fit(Z, X, Y)
 
     diag.l2influence_plot()
-    
+
     _, ax = plt.subplots(nrows=2, ncols=2)
     diag.l2influence_plot(ax=ax[0, 0])
+
 
 def test_l2exact_influence_plot():
     ''' Test that cook histogram plot runs
     '''
     Z, X, Y, _, _ = gen_kmenta_data()
     diag = IVDiagnostics(add_constant=True)
-    
+
     with pytest.raises(AttributeError) as e_info:
         diag.l2exact_influence_plot()
+    print(e_info)
 
     diag = diag.fit(Z, X, Y)
 
     diag.l2exact_influence_plot()
-    
+
     _, ax = plt.subplots(nrows=2, ncols=2)
     diag.l2exact_influence_plot(ax=ax[0, 0])
-

@@ -23,7 +23,7 @@ def influence_plot(influence_measure, leverage, resid, df, nobs, *, labels=None,
         labels = np.array(lrange(len(influence_measure)))
 
     mean_leverage = np.mean(leverage)
-    
+
     if npoints is not None:
         # choose the largest n points with respect to each of
         # the measures and then take the union.
@@ -39,9 +39,9 @@ def influence_plot(influence_measure, leverage, resid, df, nobs, *, labels=None,
 
     psize = influence_measure
     # scale the variables
-    #TODO: what is the correct scaling and the assumption here?
-    #we want plots to be comparable across different plots
-    #so we would need to use the expected distribution of criterion probably
+    # TODO (copied from statsmodels): what is the correct scaling and the assumption here?
+    # we want plots to be comparable across different plots
+    # so we would need to use the expected distribution of criterion probably
     old_range = np.ptp(psize)
     new_range = size**2 - 8**2
 
@@ -55,16 +55,16 @@ def influence_plot(influence_measure, leverage, resid, df, nobs, *, labels=None,
     large_cook = influence_measure > influence_measure_thr
     large_points = np.logical_or(large_resid, large_leverage)
     large_points = np.logical_or(large_points, large_cook)
-    sc = ax.scatter(leverage, resid, s=psize,
-            c=interpolate_color(np.array([1, 1, 1]), np.array([0, 0, 1]),
-                                influence_measure / influence_measure.max()),
-            alpha=plot_alpha)
+    ax.scatter(leverage, resid, s=psize,
+               c=interpolate_color(np.array([1, 1, 1]), np.array([0, 0, 1]),
+                                   influence_measure / influence_measure.max()),
+               alpha=plot_alpha)
 
     # add point labels
     ax = annotate_axes(np.where(large_points)[0], labels,
-                    lzip(leverage, resid),
-                    lzip(-(psize/2)**.5, (psize/2)**.5), "x-large",
-                    ax)
+                       lzip(leverage, resid),
+                       lzip(-(psize/2)**.5, (psize/2)**.5), "x-large",
+                       ax)
     ax.axhline(-2, linestyle='--')
     ax.axhline(2, linestyle='--')
     ax.axvline(2 * mean_leverage, linestyle='--', c='red')

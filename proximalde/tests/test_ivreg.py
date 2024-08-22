@@ -2,7 +2,8 @@ import numpy as np
 from sklearn.linear_model import LinearRegression
 from sklearn.linear_model import RidgeCV, Ridge
 from .utilities import gen_iv_data
-from ..ivreg import *
+from ..ivreg import Regularized2SLS
+
 
 def test_functional_equivalency():
     ''' Test that the `Regularized2SLS` functionality for different
@@ -18,14 +19,15 @@ def test_functional_equivalency():
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))]).fit(Z, X, Y).coef_
     coef2 = LinearRegression().fit(LinearRegression().fit(Z, X).predict(Z), Y).coef_
     assert np.allclose(coef1, coef2)
-    
+
     coef1 = Regularized2SLS(modelcv=LinearRegression(fit_intercept=False),
                             model=LinearRegression(fit_intercept=False),
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))]).fit(Z, X, Y).coef_
-    coef2 = LinearRegression(fit_intercept=False).fit(LinearRegression(fit_intercept=False).fit(Z, X).predict(Z), Y).coef_
+    Xhat = LinearRegression(fit_intercept=False).fit(Z, X).predict(Z)
+    coef2 = LinearRegression(fit_intercept=False).fit(Xhat, Y).coef_
     assert np.allclose(coef1, coef2)
-    
+
     coef1 = Regularized2SLS(modelcv=RidgeCV(),
                             model=None,
                             semi=False,
@@ -33,7 +35,7 @@ def test_functional_equivalency():
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))]).fit(Z, X, Y).coef_
     coef2 = RidgeCV().fit(RidgeCV().fit(Z, X).predict(Z), Y).coef_
     assert np.allclose(coef1, coef2)
-    
+
     coef1 = Regularized2SLS(modelcv=RidgeCV(),
                             model=Ridge(),
                             semi=True,
@@ -41,7 +43,7 @@ def test_functional_equivalency():
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))]).fit(Z, X, Y).coef_
     coef2 = RidgeCV().fit(RidgeCV().fit(Z, X).predict(Z), Y).coef_
     assert np.allclose(coef1, coef2)
-    
+
     coef1 = Regularized2SLS(modelcv=RidgeCV(),
                             model=Ridge(),
                             semi=False,
@@ -65,7 +67,6 @@ def test_accuracy():
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))]).fit(Z, X, Y).coef_
     assert np.allclose(coef1, np.ones(px) / px, atol=1e-2)
-
 
     nosplitcv = [(np.arange(X.shape[0]), np.arange(X.shape[0]))]
     for semi in [True, False]:

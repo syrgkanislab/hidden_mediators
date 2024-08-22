@@ -74,7 +74,8 @@ def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
         https://joseluismontielolea.com/Montiel-OleaJBES.pdf
         This statistic is advocated in many prior works as the right statistic that
         correlates better with the final estimate bias, as compared to Frobust.
-        See e.g.: 
+        See e.g.:
+        https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
         This statistic roughly corresponds to:
             pi.T @ pi / (ninstruments * nobs * trace(Cov(pi)))
         So instead of using the inverse of the covariance matrix, we only
@@ -93,7 +94,7 @@ def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
         in Montiel-Olea and Pflueger, where we set x=1/tau to calculate this critical
         value.
     '''
-    
+
     nobs = Z.shape[0]
 
     Y = Y.reshape(-1, 1)
@@ -171,6 +172,5 @@ def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
         maxeigW2 = scipy.linalg.eigvalsh(W2)[-1]
         Keff[i] = (trW2**2) * (1 + 2 / tau) / (np.trace(W2.T @ W2) + 2 * trW2 * maxeigW2 / tau)
         Feff_crit = scipy.stats.ncx2.ppf(1 - alpha, df=Keff, nc=Keff / tau) / Keff
-
 
     return ftest_df1, ftest_df2, Fnonrobust, pnonrobust, Frobust, probust, Feff, Keff, Feff_crit

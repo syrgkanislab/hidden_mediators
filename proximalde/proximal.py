@@ -1,17 +1,18 @@
 import numpy as np
-from sklearn.linear_model import LassoCV, Lasso, MultiTaskLassoCV, MultiTaskLasso, Ridge, RidgeCV
+from sklearn.linear_model import LassoCV, Lasso
+from sklearn.linear_model import MultiTaskLassoCV, MultiTaskLasso
+from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv
 from sklearn.base import BaseEstimator
-import warnings
 from joblib import Parallel, delayed
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
 from .crossfit import fit_predict
-from .ivreg import Regularized2SLS
-from .inference import EmpiricalInferenceResults, NormalInferenceResults, pvalue
+from .ivreg import Regularized2SLS, RegularizedDualIVSolver
+from .inference import EmpiricalInferenceResults, NormalInferenceResults
+from .inference import pvalue
 from .ivtests import weakiv_tests
 from .diagnostics import IVDiagnostics
-warnings.simplefilter("ignore")
 
 
 def residualizeW(W, D, Z, X, Y, *, categorical=True,
@@ -20,9 +21,11 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     ''' Residualizes W out of all the other variables using cross-fitting
     and lasso regression models.
     '''
+    if len(W.shape) == 1:
+        W = W.reshape(-1, 1)
     if len(D.shape) == 1:
         D = D.reshape(-1, 1)
-    assert (D.shape[1]==1), "D should be a scalar treatment"
+    assert D.shape[1] == 1, "D should be a scalar treatment"
     if len(Z.shape) == 1:
         Z = Z.reshape(-1, 1)
     if len(X.shape) == 1:
@@ -31,11 +34,14 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
         Y = Y.reshape(-1, 1)
 
     #####
-    # Residualizing W out of D, Z, X, Y, using cross-fitting (or semi-cross-fitting)
-    # and a Lasso model with regularization chosen via cross-validation
+    # Residualizing W out of D, Z, X, Y, using cross-fitting
+    # (or semi-cross-fitting) and a Lasso model with regularization
+    # chosen via cross-validation
     #####
 
-    cv = check_cv(cv, classifier=categorical)
+    cv = check_cv(cv, y=D, classifier=categorical)
+    if hasattr(cv, 'shuffle'):
+        cv.shuffle = True
     if hasattr(cv, 'random_state'):
         cv.random_state = random_state
 
@@ -48,13 +54,17 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
 
     splits = list(cv.split(W, D))
     print("Residualizing D...")
-    Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+    Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
+                           n_jobs, verbose)
     print("Residualizing Z...")
-    Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+    Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
+                           n_jobs, verbose)
     print("Residualizing X...")
-    Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+    Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
+                           n_jobs, verbose)
     print("Residualizing Y...")
-    Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+    Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
+                           n_jobs, verbose)
 
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)
@@ -64,10 +74,10 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     r2X = np.mean(1 - np.mean(Xres**2, axis=0) / np.var(X, axis=0))
     r2Y = np.mean(1 - np.mean(Yres**2, axis=0) / np.var(Y, axis=0))
 
-    return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y
+    return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def estimate_nuisances(Dres, Zres, Xres, Yres, *,
+def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Q',
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -78,12 +88,14 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *,
     parameter c (with a theoretically invalid standard error).
     Both solutions are estimated using a ridge regularized two-stage
     least squares estimation procedure, with first stage cross-fitting.
+    Returns quantities Dbar = Dres - gamma'Zres and Ybar = Ybar - eta'Xres
     '''
     nobs = Dres.shape[0]
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
     alphas = np.logspace(-3, 3, 100) * np.sqrt(DZres.shape[0])
-    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False,
+                                            alphas=alphas),
                             model=Ridge(fit_intercept=False),
                             cv=cv,
                             n_jobs=n_jobs,
@@ -94,33 +106,51 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *,
     point_pre = ivreg.coef_[0]
     std_pre = ivreg.stderr_[0]
     primal_moments = DZres * (Yres - DXres @ ivreg.coef_.reshape(-1, 1))
-    primal_violation = np.linalg.norm(np.sqrt(nobs) * np.mean(primal_moments, axis=0) / np.std(primal_moments, axis=0),
-                                      ord=np.inf)
+    scaled_primal_moments = np.mean(primal_moments, axis=0)
+    scaled_primal_moments /= np.std(primal_moments, axis=0) / np.sqrt(nobs)
+    primal_violation = np.linalg.norm(scaled_primal_moments, ord=np.inf)
 
-    alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
-    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
-                            model=Ridge(fit_intercept=False),
-                            cv=cv,
-                            n_jobs=n_jobs,
-                            verbose=verbose,
-                            random_state=random_state)
-    ivreg.fit(Xres, Zres, Dres)
-    gamma = ivreg.coef_.reshape(-1, 1)
-    dual_moments = Xres * (Dres - Zres @ gamma)
-    dual_violation = np.linalg.norm(np.sqrt(nobs) * np.mean(dual_moments, axis=0) / np.std(dual_moments, axis=0),
-                                    ord=np.inf)
+    # ``outcome'' for the final stage Neyman orthogonal moment
+    Ybar = Yres - Xres @ eta
 
-    return eta, gamma, point_pre, std_pre, primal_violation, dual_violation
+    if dual_type == 'Q':
+        Q = ivreg.Q_[:, 1:]  # this is X projected onto Z (i.e. best linear predictor of X from Z)
+        alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
+        ivreg = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
+        ivreg.fit(Xres, Q, Dres)
+        gamma = ivreg.gamma_.reshape(-1, 1)
+        # ``instrument'' for the final stage Neyman orthogonal moment
+        Dbar = Dres - Q @ gamma
+    elif dual_type == 'Z':
+        alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
+        ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False,
+                                                alphas=alphas),
+                                model=Ridge(fit_intercept=False),
+                                cv=cv,
+                                n_jobs=n_jobs,
+                                verbose=verbose,
+                                random_state=random_state)
+        ivreg.fit(Xres, Zres, Dres)
+        gamma = ivreg.coef_.reshape(-1, 1)
+        # ``instrument'' for the final stage Neyman orthogonal moment
+        Dbar = Dres - Zres @ gamma
+    else:
+        raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
+
+    dual_moments = Xres * Dbar
+    scaled_dual_moments = np.mean(dual_moments, axis=0)
+    scaled_dual_moments /= np.std(dual_moments, axis=0) / np.sqrt(nobs)
+    dual_violation = np.linalg.norm(scaled_dual_moments, ord=np.inf)
+
+    return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
+        primal_violation, dual_violation
 
 
-def estimate_final(Dres, Zres, Xres, Yres, eta, gamma):
+def estimate_final(Dbar, Dres, Ybar):
     '''
     Final moment solution: solve for c the equation
-      E[(Yres - eta'Xres - c * Dres) (Dres - gamma'Zres)] = 0
+      E[(Ybar - c * Dres) Dbar] = 0
     '''
-    Ybar = Yres - Xres @ eta
-    Dbar = Dres - Zres @ gamma
-    
     Jdebiased = Dbar.T @ Dres / Dbar.shape[0]
     Jdebiasedinv = 1 / Jdebiased
     point_debiased = Jdebiasedinv @ (Dbar.T @ Ybar / Dbar.shape[0])
@@ -128,56 +158,67 @@ def estimate_final(Dres, Zres, Xres, Yres, eta, gamma):
     std_debiased = np.sqrt(np.mean(inf**2) / inf.shape[0])
 
     # standardized strength of jacobian that goes into the denominator
-    idstrength = np.abs(np.sqrt(Dres.shape[0]) * np.mean(Jdebiased) / np.std(Dbar * Dres))
-    
-    return point_debiased[0, 0], std_debiased, idstrength, inf.flatten(), Dbar, Ybar
+    idstrength = np.abs(np.mean(Jdebiased))
+    idstrength /= np.std(Dbar * Dres) / np.sqrt(Dres.shape[0])
+
+    return point_debiased[0, 0], std_debiased, idstrength, inf.flatten()
 
 
-def second_stage(Dres, Zres, Xres, Yres, *,
+def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z',
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
     ''' Estimate nuisance parameters eta and gamma and then estimate
     target parameter using the nuisances.
     '''
-    # estimate the nuisance coefficients that are required for the orthogonal moment
-    eta, gamma, point_pre, std_pre, _, _ = estimate_nuisances(Dres, Zres, Xres, Yres,
-                                                              cv=cv, n_jobs=n_jobs,
-                                                              verbose=verbose,
-                                                              random_state=random_state)
+    # estimate the nuisance coefficients that are required
+    # for the orthogonal moment
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _ = \
+        estimate_nuisances(Dres, Zres, Xres, Yres,
+                           dual_type=dual_type,
+                           cv=cv, n_jobs=n_jobs,
+                           verbose=verbose,
+                           random_state=random_state)
 
     # estimate target parameter using the orthogonal moment
-    point_debiased, std_debiased, idstrength, inf, Dbar, Ybar = estimate_final(Dres, Zres, Xres, Yres,
-                                                                               eta, gamma)
+    point_debiased, std_debiased, idstrength, inf = estimate_final(Dbar, Dres, Ybar)
 
-    return point_debiased, std_debiased, idstrength, point_pre, std_pre, eta, gamma, inf, Dbar, Ybar
+    return point_debiased, std_debiased, idstrength, point_pre, std_pre, \
+        eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, categorical=True,
-            cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
-            random_state=None):
+def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
+                           cv=5, semi=False, multitask=False, n_jobs=-1,
+                           verbose=0, random_state=None):
     '''
+    dual_type: whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
+        as the dual IV problem to construt the orthogonal instrument Dbar.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting multivariate targets
+    multitask: whether to use multitask models when predicting
+        multivariate targets
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
     '''
-    
     # residualize W from all the variables
-    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y = residualizeW(W, D, Z, X, Y,
-            categorical=categorical, cv=cv, semi=semi, multitask=multitask,
-            n_jobs=n_jobs, verbose=verbose,
-            random_state=random_state)
+    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
+        residualizeW(W, D, Z, X, Y,
+                     categorical=categorical, cv=cv,
+                     semi=semi, multitask=multitask,
+                     n_jobs=n_jobs, verbose=verbose,
+                     random_state=random_state)
 
-    point_debiased, std_debiased, idstrength, point_pre, std_pre, _, _, _, _, _ = second_stage(
-        Dres, Zres, Xres, Yres,
-        cv=cv, n_jobs=n_jobs, verbose=verbose, random_state=random_state)
+    point_debiased, std_debiased, idstrength, point_pre, std_pre, *_ = \
+        second_stage(Dres, Zres, Xres, Yres,
+                     dual_type=dual_type,
+                     cv=cv, n_jobs=n_jobs, verbose=verbose,
+                     random_state=random_state)
 
     # reporting point estimate and standard error of Controlled Direct Effect
     # and R^ performance of nuisance models
-    return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, idstrength, point_pre, std_pre
+    return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
+        idstrength, point_pre, std_pre
 
 
 def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
@@ -190,17 +231,21 @@ def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
 class ProximalDE(BaseEstimator):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
 
+    dual_type: whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
+        as the dual IV problem to construt the orthogonal instrument Dbar.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting multivariate targets
+    multitask: whether to use multitask models when predicting
+        multivariate targets
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
     '''
 
     def __init__(self, *,
+                 dual_type='Z',
                  categorical=True,
                  cv=5,
                  semi=True,
@@ -208,6 +253,7 @@ class ProximalDE(BaseEstimator):
                  n_jobs=-1,
                  verbose=0,
                  random_state=None):
+        self.dual_type = dual_type
         self.categorical = categorical
         self.cv = cv
         self.semi = semi
@@ -218,26 +264,35 @@ class ProximalDE(BaseEstimator):
 
     def fit(self, W, D, Z, X, Y):
         # residualize W from all the variables
-        Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y = residualizeW(W, D, Z, X, Y,
-                categorical=self.categorical, cv=self.cv, semi=self.semi,
-                multitask=self.multitask, n_jobs=self.n_jobs, verbose=self.verbose,
-                random_state=self.random_state)
+        Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
+            residualizeW(W, D, Z, X, Y,
+                         categorical=self.categorical, cv=self.cv,
+                         semi=self.semi, multitask=self.multitask,
+                         n_jobs=self.n_jobs, verbose=self.verbose,
+                         random_state=self.random_state)
 
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0
-        eta, gamma, point_pre, std_pre, primal_violation, dual_violation = \
+        Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
+                               dual_type=self.dual_type,
                                cv=self.cv, n_jobs=self.n_jobs,
                                verbose=self.verbose,
                                random_state=self.random_state)
 
         # Final moment solution: solve for c the equation
         #   E[(Yres - eta'Xres - c * Dres) (Dres - gamma'Zres)] = 0
-        point_debiased, std_debiased, idstrength, inf, Dbar, Ybar = estimate_final(Dres, Zres, Xres, Yres,
-                                                                                   eta, gamma)
-        
-        # Storing fitted parameters and training data as properties of the class
+        point_debiased, std_debiased, idstrength, inf = estimate_final(Dbar, Dres, Ybar)
+
+        # Storing fitted parameters and training data as
+        # properties of the class
+        self.nobs_ = D.shape[0]
+        self.dual_type_ = self.dual_type
+        self.categorical_ = self.categorical
+        self.cv_ = self.cv
+        self.semi_ = self.semi
+        self.multitask_ = self.multitask
         self.W_ = W
         self.D_ = D
         self.Z_ = Z
@@ -251,6 +306,9 @@ class ProximalDE(BaseEstimator):
         self.r2Z_ = r2Z
         self.r2X_ = r2X
         self.r2Y_ = r2Y
+        self.splits_ = splits
+        self.Dbar_ = Dbar
+        self.Ybar_ = Ybar
         self.eta_ = eta
         self.gamma_ = gamma
         self.point_pre_ = point_pre
@@ -261,8 +319,6 @@ class ProximalDE(BaseEstimator):
         self.std_ = std_debiased
         self.idstrength_ = idstrength
         self.inf_ = inf
-        self.Dbar_ = Dbar
-        self.Ybar_ = Ybar
 
         return self
 
@@ -272,11 +328,12 @@ class ProximalDE(BaseEstimator):
 
     def conf_int(self, *, alpha=0.05):
         self._check_is_fitted()
-        return NormalInferenceResults(self.point_, self.std_).conf_int(alpha=alpha)
+        inf = NormalInferenceResults(self.point_, self.std_)
+        return inf.conf_int(alpha=alpha)
 
     def robust_conf_int(self, *, lb, ub, ngrid=1000, alpha=0.05):
         ''' Confidence intervals that are robust to weak identification.
-        
+
         lb: lower bound on grid for which to search for feasible solutions
         ub: lower bound on grid for which to search for feasible solutions
         ngrid: number of grid points to search for
@@ -287,9 +344,7 @@ class ProximalDE(BaseEstimator):
         lb, ub = np.inf, -np.inf
         threshold = scipy.stats.chi2.ppf(1 - alpha, df=1)
         for g in grid:
-            Ybar = self.Yres_ - self.Xres_ @ self.eta_
-            Dbar = self.Dres_ - self.Zres_ @ self.gamma_
-            moment = (Ybar - self.Dres_ * g) * Dbar
+            moment = (self.Ybar_ - self.Dres_ * g) * self.Dbar_
             stat = moment.shape[0] * np.mean(moment)**2 / np.var(moment)
             if stat < threshold:
                 lb = g if lb > g else lb
@@ -299,32 +354,46 @@ class ProximalDE(BaseEstimator):
     def summary(self, *, alpha=0.05, value=0, decimals=4):
         self._check_is_fitted()
         # target parameter summary
-        sm = NormalInferenceResults(self.point_, self.std_).summary(alpha=alpha, value=value)
+        inf = NormalInferenceResults(self.point_, self.std_)
+        sm = inf.summary(alpha=alpha, value=value, decimals=decimals)
         # nuisance summary
-        res = np.array([self.r2D_, self.r2Z_, self.r2X_, self.r2Y_]).reshape(1, -1)
+        res = np.array([self.r2D_, self.r2Z_, self.r2X_, self.r2Y_])
+        res = res.reshape(1, -1)
         res = np.round(res, decimals)
         headers = ['r2D', 'r2Z', 'r2X', 'r2Y']
-        sm.tables.append(SimpleTable(res, headers, [0], "R^2 of W-Residual Nuisance Models"))
+        sm.tables.append(SimpleTable(res, headers, [0],
+                                     "R^2 of W-Residual Nuisance Models"))
 
         # tests for identification and assumption violation
         strength = np.round(self.idstrength_, decimals)
-        strength_pval = np.format_float_scientific(pvalue(self.idstrength_), precision=decimals)
+        strength_pval = np.format_float_scientific(pvalue(self.idstrength_),
+                                                   precision=decimals)
         pviolation = np.round(self.primal_violation_, decimals)
-        pviolation_pval = np.format_float_scientific(pvalue(self.primal_violation_), precision=decimals)
+        pviolation_pval = pvalue(self.primal_violation_)
+        pviolation_pval = np.format_float_scientific(pviolation_pval,
+                                                     precision=decimals)
         dviolation = np.round(self.dual_violation_, decimals)
-        dviolation_pval = np.format_float_scientific(pvalue(self.dual_violation_), precision=decimals)
+        dviolation_pval = pvalue(self.dual_violation_)
+        dviolation_pval = np.format_float_scientific(dviolation_pval,
+                                                     precision=decimals)
         res = np.array([[strength, pviolation, dviolation],
                         [strength_pval, pviolation_pval, dviolation_pval]]).T
         headers = ['statistic', 'p-value']
         index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3']
-        sm.tables.append(SimpleTable(res, headers, index, "Tests for weak ID and moment violation"))
+        sm.tables.append(SimpleTable(res, headers, index,
+                                     "Tests for weak ID and moment violation"))
 
         # identification strength
-        sm.add_extra_txt(['With $\\epsilon=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$',
-                          '1. Identification strength $\\frac{\\sqrt{n} E_n[\\tilde{D} V]}{Std_n(\\tilde{D} V)}$ (ideally above 2): ' + f'{strength}',
-                          '2. Maximum violation of primal moments $\\frac{\\sqrt{n} E_n[\\epsilon V]}{Std_n(\\epsilon V)}$ (ideally below 2): ' + f'{pviolation}',
-                          '3. Maximum violation of dual moments $\\frac{\\sqrt{n} E_n[V \\tilde{X}]}{Std_n(V \\tilde{X})}$ (ideally below 2): ' + f'{dviolation}'])
-        
+        sm.add_extra_txt([
+            'With $\\epsilon=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
+            'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$',
+            '1. Identification strength $\\frac{\\sqrt{n} E_n[\\tilde{D} V]}{Std_n(\\tilde{D} V)}$ '
+            '(ideally above 2): ' + f'{strength}',
+            '2. Maximum violation of primal moments $\\frac{\\sqrt{n} E_n[\\epsilon V]}{Std_n(\\epsilon V)}$ '
+            '(ideally below 2): ' + f'{pviolation}',
+            '3. Maximum violation of dual moments $\\frac{\\sqrt{n} E_n[V \\tilde{X}]}{Std_n(V \\tilde{X})}$ '
+            '(ideally below 2): ' + f'{dviolation}'])
+
         # weak IV first stage F-tests
         weak_res = weakiv_tests(self.Dbar_, self.Dres_, self.Ybar_)
         ftest_df1, ftest_df2, Fnonrobust, pnonrobust, Frobust, probust, Feff, Keff, Feff_crit = weak_res
@@ -360,42 +429,40 @@ class ProximalDE(BaseEstimator):
                               verbose=0,
                               random_state=None):
         self._check_is_fitted()
-        subsamples = _gen_subsamples(self.Dres_.shape[0], n_subsamples,
+        subsamples = _gen_subsamples(self.nobs_, n_subsamples,
                                      fraction, replace, random_state)
         results = Parallel(n_jobs=n_jobs, verbose=verbose)(
-            delayed(estimate_final)(self.Dres_[sub],
-                                    self.Zres_[sub],
-                                    self.Xres_[sub],
-                                    self.Yres_[sub],
-                                    self.eta_, self.gamma_)
+            delayed(estimate_final)(self.Dbar_[sub],
+                                    self.Dres_[sub],
+                                    self.Ybar_[sub])
             for sub in subsamples)
         # get the distribution of point estimates from the results
-        points = next(zip(*results))
+        points, *_ = zip(*results)
         return np.array(points)
 
-
     def subsample_second_stage(self, *,
-                              n_subsamples=1000,
-                              fraction=.5,
-                              replace=False,
-                              n_jobs=-1,
-                              verbose=0,
-                              random_state=None):
+                               n_subsamples=1000,
+                               fraction=.5,
+                               replace=False,
+                               n_jobs=-1,
+                               verbose=0,
+                               random_state=None):
         self._check_is_fitted()
-        subsamples = _gen_subsamples(self.Dres_.shape[0], n_subsamples,
+        subsamples = _gen_subsamples(self.nobs_, n_subsamples,
                                      fraction, replace, random_state)
         results = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(second_stage)(self.Dres_[sub],
                                   self.Zres_[sub],
                                   self.Xres_[sub],
                                   self.Yres_[sub],
-                                  cv=self.cv, n_jobs=1, verbose=0,
+                                  dual_type=self.dual_type_,
+                                  cv=self.cv_,
+                                  n_jobs=1, verbose=0,
                                   random_state=None)
             for sub in subsamples)
         # get the distribution of point estimates from the results
-        points = next(zip(*results))
+        points, *_ = zip(*results)
         return np.array(points)
-
 
     def subsample_all_stages(self, *,
                              n_subsamples=1000,
@@ -405,7 +472,7 @@ class ProximalDE(BaseEstimator):
                              verbose=0,
                              random_state=None):
         self._check_is_fitted()
-        subsamples = _gen_subsamples(self.Dres_.shape[0], n_subsamples,
+        subsamples = _gen_subsamples(self.nobs_, n_subsamples,
                                      fraction, replace, random_state)
         results = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(proximal_direct_effect)(self.W_[sub],
@@ -413,17 +480,17 @@ class ProximalDE(BaseEstimator):
                                             self.Z_[sub],
                                             self.X_[sub],
                                             self.Y_[sub],
-                                            categorical=self.categorical,
-                                            cv=self.cv,
-                                            semi=self.semi,
-                                            multitask=self.multitask,
+                                            dual_type=self.dual_type_,
+                                            categorical=self.categorical_,
+                                            cv=self.cv_,
+                                            semi=self.semi_,
+                                            multitask=self.multitask_,
                                             n_jobs=1, verbose=0,
                                             random_state=None)
             for sub in subsamples)
         # get the distribution of point estimates from the results
-        points = next(zip(*results))
+        points, *_ = zip(*results)
         return np.array(points)
-
 
     def bootstrap_inference(self, *, stage=3, n_subsamples=1000,
                             fraction=.5, replace=False, n_jobs=-1, verbose=0,

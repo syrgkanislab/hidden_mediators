@@ -1,7 +1,7 @@
 import numpy as np
-import pandas as pd
 from .utilities import gen_kmenta_data, gen_schooling_returns_data, gen_iv_data
 from ..ivtests import weakiv_tests
+
 
 def test_ivreg_r_compatibility_kmenta():
     ''' Test that on the small KMenta dataset the results that we get
@@ -28,7 +28,6 @@ def test_ivreg_r_compatibility_kmenta():
     assert np.format_float_scientific(Fnr[1], precision=3) == '8.917e+01'
     assert np.format_float_scientific(pnr[1], precision=3) == '3.349e-10'
 
-    
     df1, df2, Fnr, pnr, _, _, _, _, _ = weakiv_tests(Z[:, 1:], X[:, 1:], Y, controls=None)
 
     assert df1 == 2

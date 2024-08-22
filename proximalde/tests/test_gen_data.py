@@ -1,6 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from ..gen_data import *
+from ..gen_data import gen_data_complex
+
 
 def test_gen_data_complex():
     ''' Test that the data specification and generation works
@@ -8,10 +9,10 @@ def test_gen_data_complex():
     '''
     a = .3
     b = .6
-    c = .5 # this is the direct effect we want to estimate
+    c = .5  # this is the direct effect we want to estimate
     d = .7
-    e = .5 # if the product of e*f is small, then we have a weak instrument
-    f = .8 # if the product of e*f is small, then we have a weak instrument
+    e = .5  # if the product of e*f is small, then we have a weak instrument
+    f = .8  # if the product of e*f is small, then we have a weak instrument
     g = .9
     n = 100000
     pw = 3

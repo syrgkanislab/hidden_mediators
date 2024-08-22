@@ -3,6 +3,7 @@ from sklearn.base import clone
 from sklearn.model_selection import cross_val_predict
 from joblib import Parallel, delayed
 
+
 def fit_predict_single(X, Y, modelcv, model, cv, semi):
     ''' Runs a single cross-fit prediction.
 
@@ -28,7 +29,7 @@ def fit_predict_single(X, Y, modelcv, model, cv, semi):
         `sklearn.model_selection.check_cv`.
     semi : bool
         Whether semi-cross-fitting or cross-fitting will be performed.
-    
+
     Returns
     -------
     cvpreds : array same shape as `Y`
@@ -48,6 +49,7 @@ def fit_predict_single(X, Y, modelcv, model, cv, semi):
     else:
         model = clone(modelcv)
     return cross_val_predict(model, X, Y, cv=cv).reshape(Y.shape)
+
 
 def fit_predict(X, Y, modelcv, model, cv, semi, multitask, n_jobs, verbose):
     ''' Produce out-of-fold predictions of `Y`. Allows for either multitasking
@@ -85,13 +87,13 @@ def fit_predict(X, Y, modelcv, model, cv, semi, multitask, n_jobs, verbose):
         Use -1 to use all cores available.
     verbose : int
         Verbosity of parallel for loops.
-    
+
     Returns
     -------
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.
     '''
-    if (len(Y.shape) == 1) or (Y.shape[1] == 1) or multitask:
+    if multitask or (len(Y.shape) == 1):
         return fit_predict_single(X, Y, modelcv, model, cv, semi)
     else:
         Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(

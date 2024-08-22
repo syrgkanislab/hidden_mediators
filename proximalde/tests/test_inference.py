@@ -1,7 +1,8 @@
 import numpy as np
 import statsmodels.api as sm
 from .utilities import gen_iv_data
-from ..inference import *
+from ..inference import NormalInferenceResults, EmpiricalInferenceResults
+
 
 def test_normal_inference():
     ''' Test `NormalInference` functionality. Compare to statsmodels.
@@ -90,7 +91,6 @@ def test_empirical_inference():
     assert np.allclose(tbl2[1][3].data, np.round(inf2.conf_int(alpha=0.1)[0], decimals=3))
     assert np.allclose(tbl2[1][4].data, np.round(inf2.conf_int(alpha=0.1)[1], decimals=3))
 
-    
     inf = NormalInferenceResults(point[0], stderr[0])
     inf2 = EmpiricalInferenceResults(point[0], point_dist[:, 0])
     assert np.allclose(inf.stderr, inf2.stderr, atol=1e-2)

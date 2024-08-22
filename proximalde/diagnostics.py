@@ -5,11 +5,13 @@ from statsmodels.graphics.utils import create_mpl_ax
 from seaborn_qqplot import pplot
 from .influence import influence_plot
 
+
 def _remove_diag(x):
     x_no_diag = np.ndarray.flatten(x)
     x_no_diag = np.delete(x_no_diag, range(0, len(x_no_diag), len(x) + 1), 0)
     x_no_diag = x_no_diag.reshape(len(x), len(x) - 1)
     return x_no_diag
+
 
 def _exact_influence_tsls(X, Z, Y, SigmaZinv, point):
     ''' Exact leave-one-out influence calculation as described
@@ -30,8 +32,9 @@ def _exact_influence_tsls(X, Z, Y, SigmaZinv, point):
     u = ((1 - xAx) / denom) * (X - R)
     u += (xmrAx / denom) * X
     g = u * ((Y - Z @ a) - (Y - R @ point)) + (u + j) * (Y - X @ point)
-    
+
     return - g @ Ainv.T
+
 
 class IVDiagnostics:
 
@@ -61,7 +64,7 @@ class IVDiagnostics:
         ''' All variables are assumed to be mean-zero. Finds the solution
         to the IV moments:
             E[(Y - X'b) Z] = 0
-            
+
         Z: (n, q), instrument
         X: (n, p), treatment
         Y: (n, 1), outcome
@@ -82,16 +85,16 @@ class IVDiagnostics:
         Xhat = Z @ B  # first stage projection of X on Z
         SigmaXhatInv = np.linalg.pinv(Xhat.T @ Xhat)  # covariance of projected X
         point = SigmaXhatInv @ Xhat.T @ Y  # final 2SLS coefficient
-        
-        ## Note. When X and Z have the same dimension then this is equivalent
-        ## to the solution to the moment equations E[(Y - X'b) Z] = 0
-        ## i.e. equivalent to b = E[ZX'] E[ZY].
+
+        # Note. When X and Z have the same dimension then this is equivalent
+        # to the solution to the moment equations E[(Y - X'b) Z] = 0
+        # i.e. equivalent to b = E[ZX'] E[ZY].
         J = Z.T @ X
         Jinv = np.linalg.pinv(J)
         point_alt = Jinv @ Z.T @ Y
         if X.shape[1] == Z.shape[1]:
             assert np.isclose(np.linalg.norm(point - point_alt, ord=np.inf), 0, atol=1e-4), \
-                ("Just-identified setting but 2SLS different from moment solution." 
+                ("Just-identified setting but 2SLS different from moment solution. "
                  "Most probably IV is under-identified")
 
         ######
@@ -265,11 +268,11 @@ class IVDiagnostics:
             inf_thr = stats.f.ppf(f_cook_thr, self.df_, self.nobs_ - self.df_)
         elif influence_measure == 'l2influence':
             inf = self.l2influence_
-            inf_name = f'$\\ell_2$ Asymptotic Influence'
+            inf_name = '$\\ell_2$ Asymptotic Influence'
             inf_thr = l2inf_thr / self.nobs_
         elif influence_measure == 'l2exact_influence':
             inf = self.l2exact_influence_
-            inf_name = f'$\\ell_2$ Exact Influence'
+            inf_name = '$\\ell_2$ Exact Influence'
             inf_thr = l2inf_thr / self.nobs_
         else:
             raise AttributeError("Unknown influence measure")
@@ -283,7 +286,6 @@ class IVDiagnostics:
                               influence_measure_thr=inf_thr,
                               influence_measure_name=inf_name,
                               plot_alpha=plot_alpha, npoints=npoints, ax=ax)
-
 
     def cookd_plot(self, *, f_cook_thr=.2, ax=None):
         ''' Histogram plot of Cook's Distance values with a threshold
@@ -306,7 +308,6 @@ class IVDiagnostics:
         threshold = stats.f.ppf(f_cook_thr, self.df_, self.nobs_ - self.df_)
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
-    
 
     def l2influence_plot(self, *, l2inf_thr=10, ax=None):
         ''' Histogram plot of Asymptotic Influence values with a threshold
@@ -330,7 +331,6 @@ class IVDiagnostics:
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
 
-
     def l2exact_influence_plot(self, *, l2inf_thr=10, ax=None):
         ''' Histogram plot of Exact Leave-one-out Influence values
         with a threshold vertical line for largeness.
@@ -352,7 +352,7 @@ class IVDiagnostics:
         threshold = l2inf_thr / self.nobs_
         ax.axvline(threshold, c='red', linestyle='--')
         return fig
-    
+
     def qqplot(self,):
         ''' Q-Q plot of the studentized residuals against theoretical student-t
         quantiles. Can be a diagnostic for outcome outliers.
@@ -360,4 +360,4 @@ class IVDiagnostics:
         self._check_is_fitted()
         pplot(pd.DataFrame({'Studentized Residuals': self.rstudent_}),
               x='Studentized Residuals', y=stats.t, kind='qq', height=4, aspect=1.5,
-              display_kws={"identity":False, "fit":True, "reg":True, "ci":0.025})
+              display_kws={"identity": False, "fit": True, "reg": True, "ci": 0.025})

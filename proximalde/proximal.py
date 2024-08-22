@@ -77,7 +77,7 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Q',
+def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -89,6 +89,9 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Q',
     Both solutions are estimated using a ridge regularized two-stage
     least squares estimation procedure, with first stage cross-fitting.
     Returns quantities Dbar = Dres - gamma'Zres and Ybar = Ybar - eta'Xres
+
+    If dual_type='Q', the moment E[(Dres - gamma'Q) X] is used as the
+    dual, where Q is the projection of X on (D;Z).
     '''
     nobs = Dres.shape[0]
     DZres = np.column_stack([Dres, Zres])
@@ -114,7 +117,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Q',
     Ybar = Yres - Xres @ eta
 
     if dual_type == 'Q':
-        Q = ivreg.Q_[:, 1:]  # this is X projected onto Z (i.e. best linear predictor of X from Z)
+        Q = ivreg.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
         alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
         ivreg = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
         ivreg.fit(Xres, Q, Dres)
@@ -189,7 +192,8 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
                            cv=5, semi=False, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
-    dual_type: whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
+    dual_type: one of {'Z', 'Q'}
+        Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
@@ -231,7 +235,8 @@ def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
 class ProximalDE(BaseEstimator):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
 
-    dual_type: whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
+    dual_type: one of {'Z', 'Q'}
+        Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).

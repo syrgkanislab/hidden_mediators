@@ -1,9 +1,13 @@
 import numpy as np
+import pytest
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
+from sklearn.linear_model import RidgeCV, Ridge
 from ..gen_data import gen_data_complex
-from ..proximal import residualizeW
+from ..proximal import residualizeW, estimate_nuisances
+from .utilities import gen_iv_data
+from ..ivreg import Regularized2SLS
 
 
 def test_residualize_w_shapes_and_accuracy():
@@ -129,7 +133,79 @@ def test_estimate_nuisances():
     pass as X, Z, Y, Y. We check that gamma, correctly recovers
     the coefficient of Y on X, using Z as an instrument.
     '''
-    return
+    np.random.seed(123)
+    n, pz, px, pw = 10000, 3, 3, 1
+    Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
+
+    for dual_type in ['Z', 'Q']:
+        _, Ybar, eta, gamma, point_pre, std_pre, \
+            primal_violation, dual_violation = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
+                                                                  dual_type=dual_type,
+                                                                  cv=2, n_jobs=-1, verbose=0,
+                                                                  random_state=123)
+        assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
+        alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
+        ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                                model=Ridge(fit_intercept=False),
+                                cv=2, random_state=123).fit(Z, X, Y)
+        coef1 = ivreg.coef_
+        assert np.allclose(eta.flatten(), coef1[1:])
+        assert np.allclose(point_pre, coef1[0])
+        assert np.allclose(std_pre, ivreg.stderr_[0])
+        moment = (Y - X @ coef1.reshape(-1, 1)) * Z
+        pv = np.mean(moment, axis=0)
+        pv = pv * np.sqrt(Z.shape[0]) / np.std(moment, axis=0)
+        pv = np.max(np.abs(pv))
+        assert np.allclose(pv, primal_violation)
+        assert np.allclose(point_pre, 1.0, atol=5e-2)
+        assert np.allclose(eta.flatten(), np.ones(px) / px, atol=5e-2)
+
+    np.random.seed(123)
+    n, pz, px, pw = 10000, 3, 3, 0
+    Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
+
+    Dbar, _, eta, gamma, point_pre, std_pre, \
+        primal_violation, dual_violation = estimate_nuisances(Y, X, Z, Y,
+                                                              dual_type='Z',
+                                                              cv=2, n_jobs=-1, verbose=0,
+                                                              random_state=123)
+    assert np.allclose(Dbar, Y - X @ gamma)
+    alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
+    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                            model=Ridge(fit_intercept=False),
+                            cv=2, random_state=123).fit(Z, X, Y)
+    coef1 = ivreg.coef_
+    assert gamma.shape == (px, 1)
+    assert np.allclose(gamma.flatten(), coef1)
+    moment = (Y - X @ coef1.reshape(-1, 1)) * Z
+    pv = np.mean(moment, axis=0)
+    pv = pv * np.sqrt(Z.shape[0]) / np.std(moment, axis=0)
+    pv = np.max(np.abs(pv))
+    assert np.allclose(pv, dual_violation)
+    assert np.allclose(gamma.flatten(), np.ones(px) / px, atol=5e-2)
+
+    np.random.seed(123)
+    n, pz, px, pw = 10000, 2, 2, 0
+    Z, X, Y, controls = gen_iv_data(n, pz, px, pw, 1.0)
+
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, \
+        primal_violation, dual_violation = estimate_nuisances(Y, X, X, Y,
+                                                              dual_type='Q',
+                                                              cv=5, n_jobs=-1, verbose=0,
+                                                              random_state=123)
+    # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
+    alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
+    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                            model=Ridge(fit_intercept=False),
+                            cv=5, random_state=123).fit(X, X, Y)
+    coef1 = ivreg.coef_
+    assert gamma.shape == (px, 1)
+    assert np.allclose(gamma.flatten(), coef1, atol=1e-3)
+    assert np.allclose(gamma.flatten(), np.ones(px) / px, atol=5e-2)
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_nuisances(Y[:100], X[:100], X[:100], Y[:100], dual_type='341324')
+    print(e_info)
 
 
 def test_estimate_final():

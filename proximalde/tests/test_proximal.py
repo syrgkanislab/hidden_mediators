@@ -303,3 +303,27 @@ def test_raise_nonfitted():
     non-fitted error when methods are called before `fit`.
     '''
     return
+
+
+def test_pde_fit_attributes():
+    return
+
+
+def test_pde_conf_int():
+    return
+
+
+def test_pde_robust_conf_int():
+    return
+
+
+def test_pde_summary():
+    return
+
+
+def test_pde_run_diagnostics():
+    return
+
+
+def test_pde_subsample_bootstrap():
+    return

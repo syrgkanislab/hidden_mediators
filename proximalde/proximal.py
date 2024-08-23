@@ -15,23 +15,27 @@ from .ivtests import weakiv_tests
 from .diagnostics import IVDiagnostics
 
 
+def _check_input(*args):
+    # check that all variables have the same samples
+    if len(np.unique([arg.shape[0] for arg in args])) > 1:
+        raise AttributeError('All input variables need to have the same number '
+                             'of samples')
+    # reshape all variables to be 2d matrices
+    return (arg.reshape(-1, 1) if len(arg.shape) == 1 else arg for arg in args)
+
+
 def residualizeW(W, D, Z, X, Y, *, categorical=True,
                  cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
     and lasso regression models.
     '''
-    if len(W.shape) == 1:
-        W = W.reshape(-1, 1)
-    if len(D.shape) == 1:
-        D = D.reshape(-1, 1)
-    assert D.shape[1] == 1, "D should be a scalar treatment"
-    if len(Z.shape) == 1:
-        Z = Z.reshape(-1, 1)
-    if len(X.shape) == 1:
-        X = X.reshape(-1, 1)
-    if len(Y.shape) == 1:
-        Y = Y.reshape(-1, 1)
+    W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
+    if D.shape[1] > 1:
+        raise AttributeError("D should be a scalar treatment")
+    if Y.shape[1] > 1:
+        raise AttributeError("Y should be a scalar outcome")
 
     #####
     # Residualizing W out of D, Z, X, Y, using cross-fitting
@@ -93,13 +97,22 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     If dual_type='Q', the moment E[(Dres - gamma'Q) X] is used as the
     dual, where Q is the projection of X on (D;Z).
     '''
+    Dres, Zres, Xres, Yres = _check_input(Dres, Zres, Xres, Yres)
+
+    if Dres.shape[1] > 1:
+        raise AttributeError("D should be a scalar treatment")
+    if Yres.shape[1] > 1:
+        raise AttributeError("Y should be a scalar outcome")
+
     nobs = Dres.shape[0]
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
-    alphas = np.logspace(-3, 3, 100) * np.sqrt(DZres.shape[0])
-    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False,
-                                            alphas=alphas),
-                            model=Ridge(fit_intercept=False),
+    alphas = np.logspace(-3, 3, 100)
+    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+                                                  alphas=alphas),
+                            model_first=Ridge(fit_intercept=False),
+                            model_final=RidgeCV(fit_intercept=False,
+                                                alphas=alphas),
                             cv=cv,
                             n_jobs=n_jobs,
                             verbose=verbose,
@@ -118,17 +131,19 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
 
     if dual_type == 'Q':
         Q = ivreg.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
+        alphas = np.logspace(-3, 3, 100)
         ivreg = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
         ivreg.fit(Xres, Q, Dres)
         gamma = ivreg.gamma_.reshape(-1, 1)
         # ``instrument'' for the final stage Neyman orthogonal moment
         Dbar = Dres - Q @ gamma
     elif dual_type == 'Z':
-        alphas = np.logspace(-3, 3, 100) * np.sqrt(Zres.shape[0])
-        ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False,
-                                                alphas=alphas),
-                                model=Ridge(fit_intercept=False),
+        alphas = np.logspace(-3, 3, 100)
+        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+                                                      alphas=alphas),
+                                model_first=Ridge(fit_intercept=False),
+                                model_final=RidgeCV(fit_intercept=False,
+                                                    alphas=alphas),
                                 cv=cv,
                                 n_jobs=n_jobs,
                                 verbose=verbose,
@@ -154,6 +169,13 @@ def estimate_final(Dbar, Dres, Ybar):
     Final moment solution: solve for c the equation
       E[(Ybar - c * Dres) Dbar] = 0
     '''
+    Dbar, Dres, Ybar = _check_input(Dbar, Dres, Ybar)
+
+    if Dbar.shape[1] > 1 or Dres.shape[1] > 1:
+        raise AttributeError("D should be a scalar treatment")
+    if Ybar.shape[1] > 1:
+        raise AttributeError("Y should be a scalar outcome")
+
     Jdebiased = Dbar.T @ Dres / Dbar.shape[0]
     Jdebiasedinv = 1 / Jdebiased
     point_debiased = Jdebiasedinv @ (Dbar.T @ Ybar / Dbar.shape[0])
@@ -205,6 +227,13 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
     '''
+    W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
+    if D.shape[1] > 1:
+        raise AttributeError("D should be a scalar treatment")
+    if Y.shape[1] > 1:
+        raise AttributeError("Y should be a scalar outcome")
+
     # residualize W from all the variables
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
         residualizeW(W, D, Z, X, Y,
@@ -268,6 +297,27 @@ class ProximalDE(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, W, D, Z, X, Y):
+        '''
+        Parameters
+        ----------
+        W : array (n, pw)
+            Controls
+        D : array (n, 1) or (n,)
+            Treatment
+        Z : array (n, pz) or (n,)
+            Treatment proxy controls
+        X : array (n, px) or (n,)
+            Outcome proxy controls
+        Y : array (n, 1) or (n,)
+            Outcome
+        '''
+        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
+        if D.shape[1] > 1:
+            raise AttributeError("D should be a scalar treatment")
+        if Y.shape[1] > 1:
+            raise AttributeError("Y should be a scalar outcome")
+
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
             residualizeW(W, D, Z, X, Y,

@@ -3,9 +3,9 @@ import pytest
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
-from sklearn.linear_model import RidgeCV, Ridge
+from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
 from ..gen_data import gen_data_complex
-from ..proximal import residualizeW, estimate_nuisances
+from ..proximal import residualizeW, estimate_nuisances, estimate_final, second_stage
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
 
@@ -35,6 +35,29 @@ def test_residualize_w_shapes_and_accuracy():
     assert np.isclose(r2Z, 0, atol=1e-3)
     assert np.isclose(r2X, 0, atol=1e-3)
     assert np.isclose(r2Y, 0, atol=1e-3)
+
+    with pytest.raises(AttributeError) as e_info:
+        residualizeW(Wfake, np.hstack([D.reshape(-1, 1), D.reshape(-1, 1)]),
+                     Z.flatten(), X.flatten(), Y.flatten(),
+                     categorical=True,
+                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     random_state=None)
+    print(e_info)
+
+    with pytest.raises(AttributeError) as e_info:
+        residualizeW(Wfake, D, Z.flatten(), X.flatten(),
+                     np.hstack([Y.reshape(-1, 1), Y.reshape(-1, 1)]),
+                     categorical=True,
+                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     random_state=None)
+    print(e_info)
+
+    with pytest.raises(AttributeError) as e_info:
+        residualizeW(Wfake, D[:100], Z.flatten(), X.flatten(), Y,
+                     categorical=True,
+                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     random_state=None)
+    print(e_info)
 
 
 def test_residualize_w_splitting():
@@ -144,9 +167,10 @@ def test_estimate_nuisances():
                                                                   cv=2, n_jobs=-1, verbose=0,
                                                                   random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
-        alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
-        ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
-                                model=Ridge(fit_intercept=False),
+        alphas = np.logspace(-3, 3, 100)
+        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
+                                model_first=Ridge(fit_intercept=False),
+                                model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                                 cv=2, random_state=123).fit(Z, X, Y)
         coef1 = ivreg.coef_
         assert np.allclose(eta.flatten(), coef1[1:])
@@ -170,9 +194,10 @@ def test_estimate_nuisances():
                                                               cv=2, n_jobs=-1, verbose=0,
                                                               random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
-    alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
-    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
-                            model=Ridge(fit_intercept=False),
+    alphas = np.logspace(-3, 3, 100)
+    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
+                            model_first=Ridge(fit_intercept=False),
+                            model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                             cv=2, random_state=123).fit(Z, X, Y)
     coef1 = ivreg.coef_
     assert gamma.shape == (px, 1)
@@ -186,7 +211,7 @@ def test_estimate_nuisances():
 
     np.random.seed(123)
     n, pz, px, pw = 10000, 2, 2, 0
-    Z, X, Y, controls = gen_iv_data(n, pz, px, pw, 1.0)
+    Z, X, Y, _ = gen_iv_data(n, pz, px, pw, 1.0)
 
     Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation, dual_violation = estimate_nuisances(Y, X, X, Y,
@@ -194,9 +219,10 @@ def test_estimate_nuisances():
                                                               cv=5, n_jobs=-1, verbose=0,
                                                               random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
-    alphas = np.logspace(-3, 3, 100) * np.sqrt(Z.shape[0])
-    ivreg = Regularized2SLS(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
-                            model=Ridge(fit_intercept=False),
+    alphas = np.logspace(-3, 3, 100)
+    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
+                            model_first=Ridge(fit_intercept=False),
+                            model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                             cv=5, random_state=123).fit(X, X, Y)
     coef1 = ivreg.coef_
     assert gamma.shape == (px, 1)
@@ -205,25 +231,71 @@ def test_estimate_nuisances():
 
     with pytest.raises(AttributeError) as e_info:
         estimate_nuisances(Y[:100], X[:100], X[:100], Y[:100], dual_type='341324')
+    assert e_info.typename == 'AttributeError'
+    assert str(e_info.value) == "Unknown `dual_type`. Should be one of {'Q', 'Z'}"
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_nuisances(np.hstack([Y, Y]), X, X, Y)
+    print(e_info)
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_nuisances(Y, X, X, np.hstack([Y, Y]))
     print(e_info)
 
 
 def test_estimate_final():
     ''' Test that the nuisance parameter function accurately
-    recovers the desired coefficients. We pass Z, X, D, Y,
-    gamma and eta. We verify that the result is the same as
-    2SLS regression of Y - eta'X on D using D - gamma'Z as
-    the instrument. Verify that the idstrength is the same as
-    sqrt{n} * mean(D * (D - gamma'Z)) / std(D * (D - gamma'Z))
+    recovers the desired coefficients. We pass Z, X, Y.
+    We verify that the result is the same as 2SLS regression of
+    Y on X using Z as the instrument. Verify that the idstrength
+    is the same as sqrt{n} * mean(X * Z) / std(X * Z)
     '''
-    return
+    np.random.seed(123)
+    Z, X, Y, _ = gen_iv_data(10000, 1, 1, 0, .5)
+    point, std, ids, inf = estimate_final(Z, X, Y)
+    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
+                            model_first=None,
+                            model_final=LinearRegression(fit_intercept=False),
+                            semi=False,
+                            cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
+                            random_state=123).fit(Z, X, Y)
+    assert np.allclose(point, ivreg.coef_[0])
+    assert np.allclose(std, ivreg.stderr_[0])
+    assert np.allclose(ids, np.sqrt(X.shape[0]) * np.mean(X * Z) / np.std(X * Z))
+    assert np.allclose(((Y - X * point) * Z / np.mean(X * Z)).flatten(), inf)
+    assert np.allclose(np.std(inf) / np.sqrt(Z.shape[0]), std)
+    assert np.allclose(point, 1, atol=2e-2)
+    assert np.allclose(ids * np.std(X * Z) / np.sqrt(X.shape[0]), 0.5, atol=1e-2)
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_final(np.hstack([Z, Z]), X, Y)
+    print(e_info)
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_final(Z, np.hstack([X, X]), Y)
+    print(e_info)
+
+    with pytest.raises(AttributeError) as e_info:
+        estimate_final(Z, X, np.hstack([Y, Y]))
+    print(e_info)
 
 
 def test_proximal_de_equivalency():
     ''' Verify that the `proximal_direct_effect` function gives
     the same results as the `ProximalDE` class.
     '''
-    return
+    Z, X, Y, controls = gen_iv_data(10000, 3, 3, 1, .5)
+    point, std, *_ = second_stage(Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
+                                  cv=5, n_jobs=-1, verbose=0, random_state=None)
+
+    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
+                            model_first=None,
+                            model_final=LinearRegression(fit_intercept=False),
+                            semi=False,
+                            cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
+                            random_state=123).fit(Z, X, Y)
+    assert np.allclose(point, ivreg.coef_[0])
+    assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
 
 
 def test_raise_nonfitted():

@@ -382,6 +382,12 @@ class ProximalDE(BaseEstimator):
             raise AttributeError("Object is not fitted!")
 
     def conf_int(self, *, alpha=0.05):
+        '''
+        Parameters
+        ----------
+        alpha : float in (0, 1), optional (default=0.05)
+            Confidence level of the interval
+        '''
         self._check_is_fitted()
         inf = NormalInferenceResults(self.point_, self.std_)
         return inf.conf_int(alpha=alpha)
@@ -389,10 +395,16 @@ class ProximalDE(BaseEstimator):
     def robust_conf_int(self, *, lb, ub, ngrid=1000, alpha=0.05):
         ''' Confidence intervals that are robust to weak identification.
 
-        lb: lower bound on grid for which to search for feasible solutions
-        ub: lower bound on grid for which to search for feasible solutions
-        ngrid: number of grid points to search for
-        alpha: confidence level
+        Parameters
+        ----------
+        lb : float
+            Lower bound on grid for which to search for feasible solutions
+        ub : float
+            Upper bound on grid for which to search for feasible solutions
+        ngrid : int, optional (default=1000)
+            Number of grid points to search for
+        alpha : float in (0, 1), optional (default=0.05)
+            Confidence level of the interval
         '''
         self._check_is_fitted()
         grid = np.linspace(lb, ub, ngrid)
@@ -407,6 +419,16 @@ class ProximalDE(BaseEstimator):
         return lb, ub
 
     def summary(self, *, alpha=0.05, value=0, decimals=4):
+        '''
+        Parameters
+        ----------
+        alpha : float in (0, 1), optional (default=0.05)
+            Confidence level of the interval
+        value : float, optional (default=0)
+            Value to test for hypothesis testing and p-values
+        decimals : int, optional (default=4)
+            Number of decimal points for floats and precision for scientific formats
+        '''
         self._check_is_fitted()
         # target parameter summary
         inf = NormalInferenceResults(self.point_, self.std_)
@@ -551,11 +573,30 @@ class ProximalDE(BaseEstimator):
                             fraction=.5, replace=False, n_jobs=-1, verbose=0,
                             random_state=None):
         '''
-        stage: one of {1, 2, 3}; whether to bootstrap from first, second or third
-            stage of the estimation process. 1 means all process is repeated on
-            the sub-sample. 2 means the residualization is not repeated, but the
-            rest is. 3 means that neither the residualization nor the estimation
+        Parameters
+        ----------
+        stage : one of {1, 2, 3}, optional (default=3)
+            Whether to bootstrap from first, second or third stage of the estimation process.
+            1 means all process is repeated on the sub-sample.
+            2 means the residualization is not repeated, but the rest is.
+            3 means that neither the residualization nor the estimation
             of nuisance parameters eta and gamma is repeated. Only the final stage.
+        n_subsamples : int, optional (default=1000)
+            Number of subsamples.
+        fraction : float in (0, 1), optional (default=.5)
+            Size of subsamples as a fraction of the original samples.
+        replace : bool, optional (default=False)
+            Whether to sample with replacement (True) or without replacement (False)
+        n_jobs : int or None, optional (default=-1)
+            Cores for parallelism. -1 means all cores, None means no parallelism
+        verbose : int, optional (default=0)
+            Degree of verbosity
+        random_state : int or None
+            Random seed for determinism
+
+        Returns
+        -------
+        results : `EmpiricalInferenceResults` object
         '''
         if stage == 3:
             method = self.subsample_third_stage

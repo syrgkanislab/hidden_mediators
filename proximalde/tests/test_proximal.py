@@ -519,14 +519,14 @@ def test_pde_summary():
         assert f'{sm[1][1][4].data}' == f'{np.round(pde.r2Y_, decimals)}'
 
         assert f'{sm[2][1][1].data}' == f'{np.round(pde.idstrength_, decimals)}'
-        assert f'{sm[2][1][2].data}' == f'{np.format_float_scientific(pvalue(pde.idstrength_),
-                                                                      precision=decimals)}'
+        assert f'{sm[2][1][2].data}' == \
+            f'{np.format_float_scientific(pvalue(pde.idstrength_), precision=decimals)}'
         assert f'{sm[2][2][1].data}' == f'{np.round(pde.primal_violation_, decimals)}'
-        assert f'{sm[2][2][2].data}' == f'{np.format_float_scientific(pvalue(pde.primal_violation_),
-                                                                      precision=decimals)}'
+        assert f'{sm[2][2][2].data}' == \
+            f'{np.format_float_scientific(pvalue(pde.primal_violation_), precision=decimals)}'
         assert f'{sm[2][3][1].data}' == f'{np.round(pde.dual_violation_, decimals)}'
-        assert f'{sm[2][3][2].data}' == f'{np.format_float_scientific(pvalue(pde.dual_violation_),
-                                                                      precision=decimals)}'
+        assert f'{sm[2][3][2].data}' == \
+            f'{np.format_float_scientific(pvalue(pde.dual_violation_), precision=decimals)}'
 
         _, _, Fnonrobust, pnonrobust, _, \
             _, Feff, _, Feff_crit = weakiv_tests(pde.Dbar_, pde.Dres_, pde.Ybar_)

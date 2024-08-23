@@ -70,7 +70,7 @@ def gen_schooling_returns_data():
 
 def gen_iv_data(n, pz, px, pw, ivstrength):
     if pz < px:
-        raise AttributeError("More instruments than treatments needed")
+        raise AttributeError("At least as many instruments as treatments needed")
 
     U = np.random.normal(0, 1, size=(n, 1))
 

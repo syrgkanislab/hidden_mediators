@@ -5,9 +5,12 @@ from sklearn.model_selection import cross_val_predict
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
 from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
 from ..gen_data import gen_data_complex
-from ..proximal import residualizeW, estimate_nuisances, estimate_final, second_stage
+from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
+    second_stage, _gen_subsamples, proximal_direct_effect, ProximalDE
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
+from ..inference import NormalInferenceResults, pvalue
+from ..ivtests import weakiv_tests
 
 
 def test_residualize_w_shapes_and_accuracy():
@@ -284,7 +287,8 @@ def test_proximal_de_equivalency():
     ''' Verify that the `proximal_direct_effect` function gives
     the same results as the `ProximalDE` class.
     '''
-    Z, X, Y, controls = gen_iv_data(10000, 3, 3, 1, .5)
+    np.random.seed(123)
+    Z, X, Y, _ = gen_iv_data(10000, 3, 3, 1, .5)
     point, std, *_ = second_stage(Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
                                   cv=5, n_jobs=-1, verbose=0, random_state=None)
 
@@ -297,33 +301,270 @@ def test_proximal_de_equivalency():
     assert np.allclose(point, ivreg.coef_[0])
     assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
 
+    np.random.seed(123)
+    Z, X, Y, _ = gen_iv_data(10000, 3, 3, 1, .5)
+    W = np.random.normal(0, 1, size=(10000, 2))
+    point, std, *_ = proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
+                                            cv=5, n_jobs=-1, verbose=0, random_state=None)
+
+    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
+                            model_first=None,
+                            model_final=LinearRegression(fit_intercept=False),
+                            semi=False,
+                            cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
+                            random_state=123).fit(Z, X, Y)
+    assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
+    assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
+
+    with pytest.raises(AttributeError) as e_info:
+        proximal_direct_effect(W, Z[:, [0, 1]], Z[:, 1:], X[:, 1:], Y)
+    assert str(e_info.value) == "D should be a scalar treatment"
+
+    with pytest.raises(AttributeError) as e_info:
+        proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Z[:, 1:])
+    assert str(e_info.value) == "Y should be a scalar outcome"
+
+
+def test_gen_subsamples():
+    s1 = _gen_subsamples(5, 5, .3, False, 123)
+    s2 = _gen_subsamples(5, 5, .3, False, 123)
+    assert np.all([s1t == s2t for s1t, s2t in zip(s1, s2)])
+    assert len(s1) == 5
+    assert np.all([len(s1t) == 2 for s1t in s1])
+    s1 = _gen_subsamples(5, 10, .2, False, 123)
+    assert len(s1) == 10
+    assert np.all([len(s1t) == 1 for s1t in s1])
+    s1 = _gen_subsamples(10, 20, .6, False, 123)
+    assert np.all([len(np.unique(s1t)) == len(s1t) for s1t in s1])
+    s1 = _gen_subsamples(10, 20, .6, True, 123)
+    assert np.any([len(np.unique(s1t)) < len(s1t) for s1t in s1])
+
+    Z, X, Y, _ = gen_iv_data(100, 1, 1, 0, .5)
+    pde = ProximalDE(cv=2, n_jobs=1).fit(Z, Z, Z, X, Y)
+    for method in [pde.subsample_third_stage, pde.subsample_second_stage, pde.subsample_all_stages]:
+        _, s1 = method(n_subsamples=10, fraction=.3, replace=False, random_state=123)
+        _, s2 = method(n_subsamples=10, fraction=.3, replace=False, random_state=123)
+        assert np.all([s1t == s2t for s1t, s2t in zip(s1, s2)])
+        assert len(s1) == 10
+        assert np.all([len(s1t) == 30 for s1t in s1])
+        _, s1 = method(n_subsamples=30, fraction=.2, replace=False, random_state=123)
+        assert len(s1) == 30
+        assert np.all([len(s1t) == 20 for s1t in s1])
+        assert np.all([len(np.unique(s1t)) == len(s1t) for s1t in s1])
+        _, s1 = method(n_subsamples=30, fraction=.2, replace=True, random_state=123)
+        assert np.all([len(s1t) == 20 for s1t in s1])
+        assert np.any([len(np.unique(s1t)) < len(s1t) for s1t in s1])
+
+    for stage in [1, 2, 3]:
+        _, s1 = pde.bootstrap_inference(stage=stage, n_subsamples=10, fraction=.3,
+                                        replace=False, return_subsamples=True, random_state=123)
+        _, s2 = pde.bootstrap_inference(stage=stage, n_subsamples=10, fraction=.3,
+                                        replace=False, return_subsamples=True, random_state=123)
+        assert np.all([s1t == s2t for s1t, s2t in zip(s1, s2)])
+        assert len(s1) == 10
+        assert np.all([len(s1t) == 30 for s1t in s1])
+        _, s1 = pde.bootstrap_inference(stage=stage, n_subsamples=30, fraction=.2,
+                                        replace=False, return_subsamples=True, random_state=123)
+        assert len(s1) == 30
+        assert np.all([len(s1t) == 20 for s1t in s1])
+        assert np.all([len(np.unique(s1t)) == len(s1t) for s1t in s1])
+        _, s1 = pde.bootstrap_inference(stage=stage, n_subsamples=30, fraction=.2,
+                                        replace=True, return_subsamples=True, random_state=123)
+        assert np.all([len(s1t) == 20 for s1t in s1])
+        assert np.any([len(np.unique(s1t)) < len(s1t) for s1t in s1])
+
 
 def test_raise_nonfitted():
     ''' Verify that the `ProximalDE` class correctly raises a
     non-fitted error when methods are called before `fit`.
     '''
-    return
+    pde = ProximalDE(cv=2, n_jobs=1)
+
+    with pytest.raises(AttributeError) as e_info:
+        pde.robust_conf_int(lb=-3, ub=3)
+    assert str(e_info.value) == "Object is not fitted!"
+
+    for method in [pde.bootstrap_inference, pde.conf_int, pde.run_diagnostics, pde.subsample_all_stages,
+                   pde.subsample_second_stage, pde.subsample_third_stage, pde.summary]:
+        with pytest.raises(AttributeError) as e_info:
+            method()
+        assert str(e_info.value) == "Object is not fitted!"
 
 
-def test_pde_fit_attributes():
-    return
+def test_pde_fit():
+    np.random.seed(123)
+    a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
+    n = 100
+    pw = 1
+    pz, px = 3, 2
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+
+    pde = ProximalDE(cv=2, n_jobs=1)
+    with pytest.raises(AttributeError) as e_info:
+        pde.fit(W, Z[:, [0, 1]], Z[:, 1:], X[:, 1:], Y)
+    assert str(e_info.value) == "D should be a scalar treatment"
+
+    with pytest.raises(AttributeError) as e_info:
+        pde.fit(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Z[:, [0, 1]])
+    assert str(e_info.value) == "Y should be a scalar outcome"
+
+    for semi, cv, dual_type, multitask, categorical, random_state in [(True, 2, 'Z', True, True, 123),
+                                                                      (False, 3, 'Q', False, False, 345)]:
+        pde = ProximalDE(dual_type=dual_type, categorical=categorical, cv=cv,
+                         semi=semi, multitask=multitask,
+                         n_jobs=1, random_state=random_state)
+        pde.fit(W, D, Z, X, Y,)
+        point, std, r2D, r2Z, r2X, r2Y, \
+            idstrength, point_pre, std_pre = proximal_direct_effect(W, D, Z, X, Y,
+                                                                    dual_type=dual_type,
+                                                                    categorical=categorical,
+                                                                    cv=cv,
+                                                                    semi=semi,
+                                                                    multitask=multitask,
+                                                                    n_jobs=1, verbose=0,
+                                                                    random_state=random_state)
+        assert np.allclose(pde.point_, point)
+        assert np.allclose(pde.std_, std)
+        assert np.allclose(pde.r2D_, r2D)
+        assert np.allclose(pde.r2Z_, r2Z)
+        assert np.allclose(pde.r2X_, r2X)
+        assert np.allclose(pde.r2Y_, r2Y)
+        assert np.allclose(pde.idstrength_, idstrength)
+        assert np.allclose(pde.point_pre_, point_pre)
+        assert np.allclose(pde.std_pre_, std_pre)
+        assert pde.nobs_ == 100
+        assert pde.dual_type_ == dual_type
+        assert pde.categorical_ == categorical
+        assert pde.cv_ == cv
+        assert pde.semi_ == semi
+        assert pde.multitask_ == multitask
+        assert np.allclose(pde.W_, W)
+        assert np.allclose(pde.D_, D.reshape(-1, 1))
+        assert np.allclose(pde.Z_, Z)
+        assert np.allclose(pde.X_, X)
+        assert np.allclose(pde.Y_, Y.reshape(-1, 1))
+        assert pde.Dres_.shape == pde.D_.shape
+        assert pde.Zres_.shape == pde.Z_.shape
+        assert pde.Xres_.shape == pde.X_.shape
+        assert pde.Yres_.shape == pde.Y_.shape
+        assert pde.Dbar_.shape == pde.D_.shape
+        assert pde.Ybar_.shape == pde.Y_.shape
+        assert pde.eta_.shape == (X.shape[1], 1)
+        assert pde.gamma_.shape == (X.shape[1], 1) if dual_type == 'Q' else (Z.shape[1], 1)
+        assert pde.primal_violation_ > 0
+        assert pde.dual_violation_ > 0
+        assert pde.inf_.shape == (100,)
+
+        if categorical is True:
+            splits2 = list(StratifiedKFold(n_splits=cv, shuffle=True,
+                                           random_state=random_state).split(W, D.reshape(-1, 1)))
+            for (tr1, te1), (tr2, te2) in zip(pde.splits_, splits2):
+                assert np.allclose(tr1, tr2)
+                assert np.allclose(te1, te2)
+        else:
+            splits2 = list(KFold(n_splits=cv, shuffle=True,
+                                 random_state=random_state).split(W, D.reshape(-1, 1)))
+            for (tr1, te1), (tr2, te2) in zip(pde.splits_, splits2):
+                assert np.allclose(tr1, tr2)
+                assert np.allclose(te1, te2)
 
 
 def test_pde_conf_int():
-    return
+    np.random.seed(123)
+    a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
+    n = 5000
+    pw = 1
+    pz, px = 3, 2
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
 
-
-def test_pde_robust_conf_int():
-    return
+    pde = ProximalDE(cv=2, n_jobs=1)
+    pde.fit(W, D, Z, X, Y,)
+    lb1, ub1 = pde.conf_int(alpha=.1)
+    lb2, ub2 = pde.conf_int(alpha=.05)
+    assert (lb2 < lb1) & (ub2 > ub1)
+    assert (lb2 < .5) & (ub2 > .5)
+    lb3, ub3 = pde.robust_conf_int(lb=0, ub=2, ngrid=1000, alpha=.1)
+    assert np.isclose(lb3, lb1, atol=5e-3) & np.isclose(ub3, ub1, atol=5e-3)
+    lb3, ub3 = pde.robust_conf_int(lb=.5, ub=2, ngrid=1000, alpha=.1)
+    assert np.isclose(lb3, .5, atol=5e-3) & np.isclose(ub3, ub1, atol=5e-3)
+    lb3, ub3 = pde.robust_conf_int(lb=.5, ub=.55, ngrid=1000, alpha=.1)
+    assert np.isclose(lb3, .5, atol=5e-3) & np.isclose(ub3, .55, atol=5e-3)
 
 
 def test_pde_summary():
-    return
+    np.random.seed(123)
+    a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
+    n = 5000
+    pw = 1
+    pz, px = 3, 2
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+
+    pde = ProximalDE(cv=2, n_jobs=1)
+    pde.fit(W, D, Z, X, Y,)
+
+    for alpha, value, decimals in [(.1, 0, 3), (.05, 1, 5)]:
+        sm = pde.summary(alpha=alpha, value=value, decimals=decimals).tables
+        inf = NormalInferenceResults(pde.point_, pde.std_)
+        assert sm[0].title == 'Parameter Summary'
+        assert sm[0][1][1].data == f'{np.round(pde.point_, decimals)}'
+        assert sm[0][1][2].data == f'{np.round(pde.std_, decimals)}'
+        assert sm[0][1][3].data == f'{np.round(inf.zstat(value=value), decimals)}'
+        assert sm[0][1][4].data == f'{np.format_float_scientific(inf.pvalue(value=value), precision=decimals)}'
+        assert sm[0][1][5].data == f'{np.round(inf.conf_int(alpha=alpha)[0], decimals)}'
+        assert sm[0][1][6].data == f'{np.round(inf.conf_int(alpha=alpha)[1], decimals)}'
+
+        assert f'{sm[1][1][1].data}' == f'{np.round(pde.r2D_, decimals)}'
+        assert f'{sm[1][1][2].data}' == f'{np.round(pde.r2Z_, decimals)}'
+        assert f'{sm[1][1][3].data}' == f'{np.round(pde.r2X_, decimals)}'
+        assert f'{sm[1][1][4].data}' == f'{np.round(pde.r2Y_, decimals)}'
+
+        assert f'{sm[2][1][1].data}' == f'{np.round(pde.idstrength_, decimals)}'
+        assert f'{sm[2][1][2].data}' == f'{np.format_float_scientific(pvalue(pde.idstrength_),
+                                                                      precision=decimals)}'
+        assert f'{sm[2][2][1].data}' == f'{np.round(pde.primal_violation_, decimals)}'
+        assert f'{sm[2][2][2].data}' == f'{np.format_float_scientific(pvalue(pde.primal_violation_),
+                                                                      precision=decimals)}'
+        assert f'{sm[2][3][1].data}' == f'{np.round(pde.dual_violation_, decimals)}'
+        assert f'{sm[2][3][2].data}' == f'{np.format_float_scientific(pvalue(pde.dual_violation_),
+                                                                      precision=decimals)}'
+
+        _, _, Fnonrobust, pnonrobust, _, \
+            _, Feff, _, Feff_crit = weakiv_tests(pde.Dbar_, pde.Dres_, pde.Ybar_)
+        assert f'{sm[3][1][1].data}' == f'{np.round(Fnonrobust[0], decimals)}'
+        assert f'{sm[3][1][5].data}' == f'{np.format_float_scientific(pnonrobust[0], precision=decimals)}'
+        assert f'{sm[3][3][1].data}' == f'{np.round(Feff[0], decimals)}'
+        assert f'{sm[3][3][6].data}' == f'{np.round(Feff_crit[0], decimals)}'
 
 
 def test_pde_run_diagnostics():
-    return
+    np.random.seed(123)
+    a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
+    n = 100
+    pw = 1
+    pz, px = 3, 2
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+
+    pde = ProximalDE(cv=2, n_jobs=1)
+    pde.fit(W, D, Z, X, Y)
+    diag = pde.run_diagnostics()
+    assert diag.dfbeta_.shape == (D.shape[0], 1)
 
 
 def test_pde_subsample_bootstrap():
-    return
+    np.random.seed(123)
+    a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
+    n = 100
+    pw = 1
+    pz, px = 3, 2
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+
+    pde = ProximalDE(cv=2, n_jobs=1)
+    pde.fit(W, D, Z, X, Y)
+    for stage in [1, 2, 3]:
+        inf = pde.bootstrap_inference(stage=stage, n_subsamples=100)
+        lb1, ub1 = inf.conf_int(alpha=.1)
+        assert (lb1 < .5) & (ub1 > .5)
+
+    with pytest.raises(AttributeError) as e_info:
+        pde.bootstrap_inference(stage=4, n_subsamples=100)
+    assert str(e_info.value) == "Stage should be one of [1, 2, 3]"

@@ -211,7 +211,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z',
 
 
 def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
-                           cv=5, semi=False, multitask=False, n_jobs=-1,
+                           cv=5, semi=True, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
     dual_type: one of {'Z', 'Q'}
@@ -430,9 +430,11 @@ class ProximalDE(BaseEstimator):
             Number of decimal points for floats and precision for scientific formats
         '''
         self._check_is_fitted()
+
         # target parameter summary
         inf = NormalInferenceResults(self.point_, self.std_)
         sm = inf.summary(alpha=alpha, value=value, decimals=decimals)
+
         # nuisance summary
         res = np.array([self.r2D_, self.r2Z_, self.r2X_, self.r2Y_])
         res = res.reshape(1, -1)
@@ -515,7 +517,7 @@ class ProximalDE(BaseEstimator):
             for sub in subsamples)
         # get the distribution of point estimates from the results
         points, *_ = zip(*results)
-        return np.array(points)
+        return np.array(points), subsamples
 
     def subsample_second_stage(self, *,
                                n_subsamples=1000,
@@ -539,7 +541,7 @@ class ProximalDE(BaseEstimator):
             for sub in subsamples)
         # get the distribution of point estimates from the results
         points, *_ = zip(*results)
-        return np.array(points)
+        return np.array(points), subsamples
 
     def subsample_all_stages(self, *,
                              n_subsamples=1000,
@@ -567,10 +569,11 @@ class ProximalDE(BaseEstimator):
             for sub in subsamples)
         # get the distribution of point estimates from the results
         points, *_ = zip(*results)
-        return np.array(points)
+        return np.array(points), subsamples
 
     def bootstrap_inference(self, *, stage=3, n_subsamples=1000,
-                            fraction=.5, replace=False, n_jobs=-1, verbose=0,
+                            fraction=.5, replace=False, return_subsamples=False,
+                            n_jobs=-1, verbose=0,
                             random_state=None):
         '''
         Parameters
@@ -587,6 +590,9 @@ class ProximalDE(BaseEstimator):
             Size of subsamples as a fraction of the original samples.
         replace : bool, optional (default=False)
             Whether to sample with replacement (True) or without replacement (False)
+        return_subsamples : bool, optional (default=False)
+            Whether to also return the list of subsample indices apart form the
+            bootstrap inference object.
         n_jobs : int or None, optional (default=-1)
             Cores for parallelism. -1 means all cores, None means no parallelism
         verbose : int, optional (default=0)
@@ -597,7 +603,13 @@ class ProximalDE(BaseEstimator):
         Returns
         -------
         results : `EmpiricalInferenceResults` object
+        subsamples : list of arrays, optional (default not returned)
+            The list of subsamples generated and which correspond to
+            each point in `results.point_dist`. Only returned if
+            `return_subsamples=True`
         '''
+        self._check_is_fitted()
+
         if stage == 3:
             method = self.subsample_third_stage
         elif stage == 2:
@@ -607,11 +619,14 @@ class ProximalDE(BaseEstimator):
         else:
             raise AttributeError("Stage should be one of [1, 2, 3]")
 
-        point_dist = method(n_subsamples=n_subsamples,
-                            fraction=fraction,
-                            replace=replace,
-                            n_jobs=n_jobs,
-                            verbose=verbose,
-                            random_state=random_state)
+        point_dist, subsamples = method(n_subsamples=n_subsamples,
+                                        fraction=fraction,
+                                        replace=replace,
+                                        n_jobs=n_jobs,
+                                        verbose=verbose,
+                                        random_state=random_state)
 
-        return EmpiricalInferenceResults(self.point_, point_dist)
+        if return_subsamples is True:
+            return EmpiricalInferenceResults(self.point_, point_dist), subsamples
+        else:
+            return EmpiricalInferenceResults(self.point_, point_dist)

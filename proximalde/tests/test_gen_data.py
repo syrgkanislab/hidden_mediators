@@ -1,6 +1,17 @@
+import pytest
 import numpy as np
 from sklearn.linear_model import LinearRegression
 from ..gen_data import gen_data_complex
+from .utilities import gen_iv_data
+
+
+def test_gen_iv_data():
+    ''' Test that `gen_iv_data` raises an error with fewer
+    instruments than treatments.
+    '''
+    with pytest.raises(AttributeError) as e_info:
+        gen_iv_data(100, 1, 3, 0, .5)
+    assert str(e_info.value) == "At least as many instruments as treatments needed"
 
 
 def test_gen_data_complex():

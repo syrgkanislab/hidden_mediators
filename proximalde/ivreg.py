@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import check_cv
 from .crossfit import fit_predict
+from .utilities import _check_input
 
 
 class Regularized2SLS(BaseEstimator):
@@ -60,6 +61,24 @@ class Regularized2SLS(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, Z, D, Y):
+        ''' Fit IV regression
+
+        Parameters
+        ----------
+        Z : array (n, pz) or (n,)
+            Instrument(s)
+        D : array (n, pd) or (n,)
+            Treatments(s)
+        Y : array (n, 1) or (n,)
+            Outcome
+
+        Returns
+        -------
+        self : object
+        '''
+        Z, D, Y = _check_input(Z, D, Y)
+        assert Y.shape[1] == 1, "Y should be scalar!"
+
         Y = Y.flatten()
 
         # Getting splits for first stage cross-fitting
@@ -137,6 +156,21 @@ class RegularizedDualIVSolver(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, X, Q, D):
+        ''' Fit linear system solution
+
+        Parameters
+        ----------
+        X : array (n, pz) or (n,)
+        Q : array (n, pd) or (n,)
+        D : array (n, 1) or (n,)
+
+        Returns
+        -------
+        self : object
+        '''
+        X, Q, D = _check_input(X, Q, D)
+        assert D.shape[1] == 1, "D should be scalar!"
+
         # regularized first stage with cross-fitting
         self.cv_ = check_cv(self.cv)
         if hasattr(self.cv_, 'shuffle'):

@@ -118,6 +118,12 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     scaled_primal_moments /= np.std(primal_moments, axis=0) / np.sqrt(nobs)
     primal_violation = np.linalg.norm(scaled_primal_moments, ord=np.inf)
 
+    # TODO. we need to calculate a good critical value for the maximum
+    # of these standardized primal violations. When X has many dimensions
+    # the critical value of 2 is not good for the maximum value of a bunch
+    # of normally distributed r.v.s. We need to calculate their covariance
+    # matrix and find a good critical value for the maximum.
+
     # ``outcome'' for the final stage Neyman orthogonal moment
     Ybar = Yres - Xres @ eta
 
@@ -152,6 +158,14 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     scaled_dual_moments /= np.std(dual_moments, axis=0) / np.sqrt(nobs)
     dual_violation = np.linalg.norm(scaled_dual_moments, ord=np.inf)
 
+    # TODO. we need to calculate a good critical value for the maximum
+    # of these standardized primal violations. When X has many dimensions
+    # the critical value of 2 is not good for the maximum value of a bunch
+    # of normally distributed r.v.s. We need to calculate their covariance
+    # matrix and find a good critical value for the maximum.
+
+    # TODO. return also critical values for the primal and dual violations
+    # that should then be reported in the summary table.
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation, dual_violation
 

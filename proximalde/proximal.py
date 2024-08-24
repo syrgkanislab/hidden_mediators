@@ -289,7 +289,8 @@ class ProximalDE(BaseEstimator):
         self.random_state = random_state
 
     def fit(self, W, D, Z, X, Y):
-        '''
+        ''' Train the estimator
+
         Parameters
         ----------
         W : array (n, pw)
@@ -302,6 +303,10 @@ class ProximalDE(BaseEstimator):
             Outcome proxy controls
         Y : array (n, 1) or (n,)
             Outcome
+
+        Returns
+        -------
+        self : object
         '''
         # if diagnostics were previously run after some previous fit then we
         # need to make those diagnostics invalid, since we are refitting
@@ -384,6 +389,11 @@ class ProximalDE(BaseEstimator):
         ----------
         alpha : float in (0, 1), optional (default=0.05)
             Confidence level of the interval
+
+        Returns
+        -------
+        lb, ub : float, float
+            The lower and upper end of the confidence interval
         '''
         self._check_is_fitted()
         inf = NormalInferenceResults(self.point_, self.std_)
@@ -402,6 +412,11 @@ class ProximalDE(BaseEstimator):
             Number of grid points to search for
         alpha : float in (0, 1), optional (default=0.05)
             Confidence level of the interval
+
+        Returns
+        -------
+        lb, ub : float, float
+            The lower and upper end of the confidence interval
         '''
         self._check_is_fitted()
         grid = np.linspace(lb, ub, ngrid)
@@ -498,7 +513,7 @@ class ProximalDE(BaseEstimator):
         self.diag_ = IVDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
         return self.diag_
 
-    def influential_set(self, alpha=None, use_exact_influence=True,
+    def influential_set(self, max_points=None, alpha=None, use_exact_influence=True,
                         use_robust_conf_inf=False, lb=None, ub=None, ngrid=1000):
         ''' Return a subset of the indices that based on the influence
         functions, if removed, should be able to negate the finding or
@@ -512,6 +527,10 @@ class ProximalDE(BaseEstimator):
 
         Parameters
         ----------
+        max_points : int, optional (default=None)
+            If None, then the smallest set that suffices to flip the result
+            is returned. Otherwise we return the most `max_points` influential
+            points that move the result towards the opposite direction
         alpha : float in (0, 1) or None, optional (default=None)
             The confidence level of the interval, or None if we want
             to overturn sign of the point estimate
@@ -540,11 +559,14 @@ class ProximalDE(BaseEstimator):
         else:
             flat_inf = self.diag_.influence_.flatten()
 
-        inds = np.argsort(flat_inf)
+        inds = np.argsort(flat_inf)  # sort samples in increasing influence
         if point <= 0:
+            # if point negative, we try to remove points with negative influence
+            # value, so that the result becomes positive
             ord_inf = flat_inf[inds]
             neg_infs = ord_inf[ord_inf <= 0]
-            cs = np.cumsum(neg_infs)
+            # the value we want to overturn is either the point or the upper end
+            # of the confidence interval
             if alpha is None:
                 ub = point
             elif use_robust_conf_inf is False:
@@ -553,16 +575,25 @@ class ProximalDE(BaseEstimator):
                 if ((lb is None) or (ub is None)):
                     raise AttributeError("`lb` and `ub` must be provided for robust interval")
                 ub = self.robust_conf_int(lb=lb, ub=ub, ngrid=ngrid, alpha=alpha)[1]
+            # we remove the smallest set of points such that the sum of their influence
+            # is smaller than this negative value (clipped at zero, in case the confidence
+            # interval already covers zero)
+            cs = np.cumsum(neg_infs)
             thr = np.argwhere(cs < np.clip(ub, -np.inf, 0))
+            # if we didn't manage to find enough sufficient negative influence to overturn
+            # then we return the whole set of points
             if len(thr) > 0:
                 thr = thr[0, 0]
             else:
                 thr = len(neg_infs) - 1
             inds = inds[:thr + 1]
         else:
+            # if point positive, we try to remove points with positive influence
+            # value, so that the result becomes negative
             ord_inf = flat_inf[inds[::-1]]
             pos_infs = ord_inf[ord_inf >= 0]
-            cs = np.cumsum(pos_infs)
+            # the value we want to overturn is either the point or the lower end
+            # of the confidence interval
             if alpha is None:
                 lb = point
             elif use_robust_conf_inf is False:
@@ -571,14 +602,23 @@ class ProximalDE(BaseEstimator):
                 if ((lb is None) or (ub is None)):
                     raise AttributeError("`lb` and `ub` must be provided for robust interval")
                 lb = self.robust_conf_int(lb=lb, ub=ub, ngrid=ngrid, alpha=alpha)[0]
+            # we remove the smallest set of points such that the sum of their influence
+            # is larger than this positive value (clipped at zero, in case the confidence
+            # interval already covers zero)
+            cs = np.cumsum(pos_infs)
             thr = np.argwhere(cs > np.clip(lb, 0, np.inf))
+            # if we didn't manage to find enough sufficient positive influence to overturn
+            # then we return the whole set of points
             if len(thr) > 0:
                 thr = thr[0, 0]
             else:
                 thr = len(pos_infs) - 1
             inds = inds[::-1][:thr + 1]
 
-        return inds
+        if max_points is None:
+            return inds
+        else:
+            return inds[:min(max_points, len(inds))]
 
     def subsample_third_stage(self, *,
                               n_subsamples=1000,

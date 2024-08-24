@@ -639,6 +639,28 @@ def test_influential_set():
         else:
             assert est2.point_ < 0
 
+        inds = est.influential_set(alpha=None, max_points=2000)
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+
+        if sign == -1:
+            assert est2.point_ > 0
+        else:
+            assert est2.point_ < 0
+
+        inds = est.influential_set(alpha=None, max_points=4)
+        assert len(inds) == 4
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+        if sign == -1:
+            assert est2.point_ > est.point_
+        else:
+            assert est2.point_ < est.point_
+
         c = sign * 100
         W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
         est = ProximalDE(dual_type='Z', cv=3, semi=True,

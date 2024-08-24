@@ -8,6 +8,9 @@ from .utilities import _check_input
 
 
 def _remove_diag(x):
+    ''' Removes the diagonal of a square (n, n) matrix to get a
+    (n, n - 1) matrix
+    '''
     x_no_diag = np.ndarray.flatten(x)
     x_no_diag = np.delete(x_no_diag, range(0, len(x_no_diag), len(x) + 1), 0)
     x_no_diag = x_no_diag.reshape(len(x), len(x) - 1)
@@ -68,12 +71,18 @@ class IVDiagnostics:
         to the IV moments:
             E[(Y - X'b) Z] = 0
 
+        Parameters
+        ----------
         Z: array (n, q) or (n,)
             instrument(s)
         X: array (n, p) or (n,)
             treatment(s)
         Y: (n, 1) or (n,)
             outcome
+
+        Returns
+        -------
+        self : object
         '''
         # ensure all transformed into 2d matrices
         Z, X, Y = _check_input(Z, X, Y)

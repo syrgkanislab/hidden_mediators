@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
+from sklearn.base import clone
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
 from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
 from ..gen_data import gen_data_complex
@@ -548,6 +549,8 @@ def test_pde_run_diagnostics():
     pde.fit(W, D, Z, X, Y)
     diag = pde.run_diagnostics()
     assert diag.dfbeta_.shape == (D.shape[0], 1)
+    assert np.allclose(diag.point_, pde.point_)
+    assert np.allclose(diag.stderr_, pde.std_)
 
 
 def test_pde_subsample_bootstrap():
@@ -568,3 +571,92 @@ def test_pde_subsample_bootstrap():
     with pytest.raises(AttributeError) as e_info:
         pde.bootstrap_inference(stage=4, n_subsamples=100)
     assert str(e_info.value) == "Stage should be one of [1, 2, 3]"
+
+
+def test_influential_set():
+    np.random.seed(123)
+    for sign in [-1, 1]:
+        a, b, c, d, e, f, g = .3, .6, sign * .5, .7, .5, .5, .9
+        n = 2000
+        pw = 1
+        pz, px = 3, 2
+        W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+        est = ProximalDE(random_state=3)
+        est.fit(W, D, Z, X, Y)
+
+        if sign == -1:
+            assert est.conf_int(alpha=0.05)[1] < 0
+        else:
+            assert est.conf_int(alpha=0.05)[0] > 0
+
+        with pytest.raises(AttributeError) as e_info:
+            est.influential_set()
+        assert str(e_info.value) == "Please call the `run_diagnostics` method first."
+
+        est.run_diagnostics()
+        assert hasattr(est, 'diag_')
+        est.fit(W, D, Z, X, Y)
+
+        with pytest.raises(AttributeError) as e_info:
+            est.influential_set()
+        assert str(e_info.value) == "Please call the `run_diagnostics` method first."
+
+        est.run_diagnostics()
+        inds = est.influential_set(alpha=0.05)
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+
+        if sign == -1:
+            assert est2.conf_int(alpha=0.05)[1] > 0
+        else:
+            assert est2.conf_int(alpha=0.05)[0] < 0
+
+        with pytest.raises(AttributeError) as e_info:
+            est.influential_set(alpha=0.05, use_robust_conf_inf=True)
+        assert str(e_info.value) == "`lb` and `ub` must be provided for robust interval"
+
+        inds = est.influential_set(alpha=0.05, use_robust_conf_inf=True, lb=-2, ub=2)
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+
+        if sign == -1:
+            assert est2.robust_conf_int(alpha=0.05, lb=-2, ub=2)[1] > 0
+        else:
+            assert est2.robust_conf_int(alpha=0.05, lb=-2, ub=2)[0] < 0
+
+        inds = est.influential_set(alpha=None)
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+
+        if sign == -1:
+            assert est2.point_ > 0
+        else:
+            assert est2.point_ < 0
+
+        c = sign * 100
+        W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+        est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                         multitask=False, n_jobs=-1, random_state=3, verbose=3)
+        est.fit(W, D, Z, X, Y)
+        diag = est.run_diagnostics()
+        inds = est.influential_set(alpha=0.05)
+        assert np.all(diag.exact_influence_[inds] * sign >= 0)
+        assert len(inds) == np.sum(diag.exact_influence_ * sign >= 0)
+        inds = est.influential_set(alpha=0.05, use_exact_influence=False)
+        assert np.all(diag.influence_[inds] * sign >= 0)
+        assert len(inds) == np.sum(diag.influence_ * sign >= 0)
+        est2 = clone(est)
+        est2.fit(np.delete(W, inds, axis=0), np.delete(D, inds, axis=0),
+                 np.delete(Z, inds, axis=0), np.delete(X, inds, axis=0),
+                 np.delete(Y, inds, axis=0))
+
+        if sign == -1:
+            assert est2.conf_int(alpha=0.05)[1] > est.conf_int(alpha=0.05)[1]
+        else:
+            assert est2.conf_int(alpha=0.05)[0] < est.conf_int(alpha=0.05)[0]

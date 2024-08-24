@@ -4,6 +4,7 @@ import scipy.stats as stats
 from statsmodels.graphics.utils import create_mpl_ax
 from seaborn_qqplot import pplot
 from .influence import influence_plot
+from .utilities import _check_input
 
 
 def _remove_diag(x):
@@ -37,25 +38,27 @@ def _exact_influence_tsls(X, Z, Y, SigmaZinv, point):
 
 
 class IVDiagnostics:
+    ''' Provides functionalities analogous to the unusual data diagnostics
+    implemented in the ivreg R package:
+    https://zeileis.github.io/ivreg/articles/Diagnostics-for-2SLS-Regression.html
+
+    Parameters
+    ----------
+    add_constant: bool, optional (default=False)
+        whether to add an intercept to instruments Z and endogenous
+        regressors X at fit time.
+    has_constant: bool, optional (default=False)
+        whether the instrument and endogenous regressors contain an
+        intercept column. If True, then the first column is assumed to
+        be the intercept column.
+    use_exact_influence: bool, optional (default=True)
+        whether to use the exact leave-one-out influence of a sample
+        on the parameters, in the robustness calculations, or use
+        the asymptotic approximation.
+    '''
 
     def __init__(self, *, add_constant=False, has_constant=False,
                  use_exact_influence=True):
-        ''' Provides functionalities analogous to the unusual data diagnostics
-        implemented in the ivreg R package:
-        https://zeileis.github.io/ivreg/articles/Diagnostics-for-2SLS-Regression.html
-
-        add_constant: bool, optional (default=False)
-            whether to add an intercept to instruments Z and endogenous
-            regressors X at fit time.
-        has_constant: bool, optional (default=False)
-            whether the instrument and endogenous regressors contain an
-            intercept column. If True, then the first column is assumed to
-            be the intercept column.
-        use_exact_influence: bool, optional (default=True)
-            whether to use the exact leave-one-out influence of a sample
-            on the parameters, in the robustness calculations, or use
-            the asymptotic approximation.
-        '''
         self.add_constant = add_constant
         self.has_constant = has_constant
         self.use_exact_influence = use_exact_influence
@@ -65,15 +68,16 @@ class IVDiagnostics:
         to the IV moments:
             E[(Y - X'b) Z] = 0
 
-        Z: (n, q), instrument
-        X: (n, p), treatment
-        Y: (n, 1), outcome
+        Z: array (n, q) or (n,)
+            instrument(s)
+        X: array (n, p) or (n,)
+            treatment(s)
+        Y: (n, 1) or (n,)
+            outcome
         '''
-        Y = Y.reshape(-1, 1)
-        if len(Z.shape) == 1:
-            Z = Z.reshape(-1, 1)
-        if len(X.shape) == 1:
-            X = X.reshape(-1, 1)
+        # ensure all transformed into 2d matrices
+        Z, X, Y = _check_input(Z, X, Y)
+        assert Y.shape[1] == 1, "Y should be scalar!"
 
         if self.add_constant:
             X = np.hstack([np.ones((X.shape[0], 1)), X])
@@ -107,6 +111,8 @@ class IVDiagnostics:
 
         # asymptotic influence function
         inf = moment @ PJinv.T
+        cov = inf.T @ inf
+        stderr = np.sqrt(np.diag(cov))
 
         # Exact influence of a data point
         exact_inf = _exact_influence_tsls(X, Z, Y, SigmaZinv, point)
@@ -165,6 +171,7 @@ class IVDiagnostics:
 
         # storing attributes
         self.point_ = point.flatten()
+        self.stderr_ = stderr.flatten()
         self.epsilon_ = epsilon.flatten()
         self.influence_ = inf
         self.l2influence_ = np.linalg.norm(inf, axis=1, ord=2)

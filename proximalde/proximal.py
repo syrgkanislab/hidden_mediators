@@ -13,15 +13,7 @@ from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .inference import pvalue
 from .ivtests import weakiv_tests
 from .diagnostics import IVDiagnostics
-
-
-def _check_input(*args):
-    # check that all variables have the same samples
-    if len(np.unique([arg.shape[0] for arg in args])) > 1:
-        raise AttributeError('All input variables need to have the same number '
-                             'of samples')
-    # reshape all variables to be 2d matrices
-    return (arg.reshape(-1, 1) if len(arg.shape) == 1 else arg for arg in args)
+from .utilities import _check_input
 
 
 def residualizeW(W, D, Z, X, Y, *, categorical=True,
@@ -311,6 +303,11 @@ class ProximalDE(BaseEstimator):
         Y : array (n, 1) or (n,)
             Outcome
         '''
+        # if diagnostics were previously run after some previous fit then we
+        # need to make those diagnostics invalid, since we are refitting
+        if hasattr(self, 'diag_'):
+            del (self.diag_)
+
         W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
         if D.shape[1] > 1:
@@ -498,7 +495,90 @@ class ProximalDE(BaseEstimator):
         the estimation process. See `diagnostics.IVDiagnostics` for more details.
         '''
         self._check_is_fitted()
-        return IVDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
+        self.diag_ = IVDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
+        return self.diag_
+
+    def influential_set(self, alpha=None, use_exact_influence=True,
+                        use_robust_conf_inf=False, lb=None, ub=None, ngrid=1000):
+        ''' Return a subset of the indices that based on the influence
+        functions, if removed, should be able to negate the finding or
+        make the confidence interval at the `alpha` level contain zero.
+        If `alpha=None`, we return the set that will make the point
+        estimate take opposite sign. These results are based on an
+        influence function representation and hence the actual impact
+        of the influential set should be verified by refitting a new
+        clone of the object, after removing the influential set from the
+        training data.
+
+        Parameters
+        ----------
+        alpha : float in (0, 1) or None, optional (default=None)
+            The confidence level of the interval, or None if we want
+            to overturn sign of the point estimate
+        use_exact_influence : bool, optional (default=True)
+            Whether to use the exact leave-one-out influence function
+            or the asymptotic approximation
+        use_robust_conf_int : bool, optional (default=False)
+            Whether to use weak-identification-robust confidence intervals
+            or normal based intervals
+        lb, ub, ngrid : float, float, int, optional (default=None, None, 1000)
+            Parameters for the robust confidence interval. Ifngored if
+            `use_robust_conf_int=False`. `lb, ub` must be provided if True.
+
+        Returns
+        -------
+        inds : array
+            the indices of the influential set
+        '''
+
+        if not hasattr(self, 'diag_'):
+            raise AttributeError("Please call the `run_diagnostics` method first.")
+
+        point = self.point_
+        if use_exact_influence:
+            flat_inf = self.diag_.exact_influence_.flatten()
+        else:
+            flat_inf = self.diag_.influence_.flatten()
+
+        inds = np.argsort(flat_inf)
+        if point <= 0:
+            ord_inf = flat_inf[inds]
+            neg_infs = ord_inf[ord_inf <= 0]
+            cs = np.cumsum(neg_infs)
+            if alpha is None:
+                ub = point
+            elif use_robust_conf_inf is False:
+                ub = self.conf_int(alpha=alpha)[1]
+            else:
+                if ((lb is None) or (ub is None)):
+                    raise AttributeError("`lb` and `ub` must be provided for robust interval")
+                ub = self.robust_conf_int(lb=lb, ub=ub, ngrid=ngrid, alpha=alpha)[1]
+            thr = np.argwhere(cs < np.clip(ub, -np.inf, 0))
+            if len(thr) > 0:
+                thr = thr[0, 0]
+            else:
+                thr = len(neg_infs) - 1
+            inds = inds[:thr + 1]
+        else:
+            ord_inf = flat_inf[inds[::-1]]
+            pos_infs = ord_inf[ord_inf >= 0]
+            cs = np.cumsum(pos_infs)
+            if alpha is None:
+                lb = point
+            elif use_robust_conf_inf is False:
+                lb = self.conf_int(alpha=alpha)[0]
+            else:
+                if ((lb is None) or (ub is None)):
+                    raise AttributeError("`lb` and `ub` must be provided for robust interval")
+                lb = self.robust_conf_int(lb=lb, ub=ub, ngrid=ngrid, alpha=alpha)[0]
+            thr = np.argwhere(cs > np.clip(lb, 0, np.inf))
+            if len(thr) > 0:
+                thr = thr[0, 0]
+            else:
+                thr = len(pos_infs) - 1
+            inds = inds[::-1][:thr + 1]
+
+        return inds
 
     def subsample_third_stage(self, *,
                               n_subsamples=1000,
@@ -575,7 +655,9 @@ class ProximalDE(BaseEstimator):
                             fraction=.5, replace=False, return_subsamples=False,
                             n_jobs=-1, verbose=0,
                             random_state=None):
-        '''
+        ''' Inference and confidence intervals based on subsampling and bootstrap
+        sub-sampling at different stages of the estimation process.
+
         Parameters
         ----------
         stage : one of {1, 2, 3}, optional (default=3)

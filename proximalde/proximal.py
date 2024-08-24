@@ -493,11 +493,17 @@ class ProximalDE(BaseEstimator):
             'With $\\epsilon=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$',
             '1. Identification strength $\\frac{\\sqrt{n} E_n[\\tilde{D} V]}{Std_n(\\tilde{D} V)}$ '
-            '(ideally above 2): ' + f'{strength}',
+            '(ideally above 2)',
+            'A small statistic implies that the effect is weakly identified because '
+            'the instrument Z is too correlated with the treatment.',
             '2. Maximum violation of primal moments $\\frac{\\sqrt{n} E_n[\\epsilon V]}{Std_n(\\epsilon V)}$ '
-            '(ideally below 2): ' + f'{pviolation}',
+            '(ideally below 2)',  # TODO. replace 2 with calculated critical value and put crit value in table
+            'A large primal violation is a test that can reject ',
+            'the linear specification of the outcome bridge function',
             '3. Maximum violation of dual moments $\\frac{\\sqrt{n} E_n[V \\tilde{X}]}{Std_n(V \\tilde{X})}$ '
-            '(ideally below 2): ' + f'{dviolation}'])
+            '(ideally below 2)',  # TODO. replace 2 with calculated critical value and put crit value in table
+            'A large dual violation is a test whether the instrument Z is a weak treatment proxy ',
+            'and implies weak identification.'])
 
         # weak IV first stage F-tests
         weak_res = weakiv_tests(self.Dbar_, self.Dres_, self.Ybar_)

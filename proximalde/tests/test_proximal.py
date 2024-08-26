@@ -1,16 +1,17 @@
 import numpy as np
 import pytest
+from scipy.stats import chi2
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
 from sklearn.base import clone
 from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
 from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
-from ..gen_data import gen_data_complex
+from ..gen_data import gen_data_complex, gen_data_no_controls
 from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
     second_stage, _gen_subsamples, proximal_direct_effect, ProximalDE
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
-from ..inference import NormalInferenceResults, pvalue
+from ..inference import NormalInferenceResults
 from ..ivtests import weakiv_tests
 
 
@@ -166,12 +167,12 @@ def test_estimate_nuisances():
 
     for dual_type in ['Z', 'Q']:
         _, Ybar, eta, gamma, point_pre, std_pre, \
-            primal_violation, dual_violation = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
-                                                                  dual_type=dual_type,
-                                                                  cv=2, n_jobs=-1, verbose=0,
-                                                                  random_state=123)
+            _, _, _ = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
+                                         dual_type=dual_type,
+                                         cv=2, n_jobs=-1, verbose=0,
+                                         random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
-        alphas = np.logspace(-3, 3, 100)
+        alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
         ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                                 model_first=Ridge(fit_intercept=False),
                                 model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -180,37 +181,28 @@ def test_estimate_nuisances():
         assert np.allclose(eta.flatten(), coef1[1:])
         assert np.allclose(point_pre, coef1[0])
         assert np.allclose(std_pre, ivreg.stderr_[0])
-        moment = (Y - X @ coef1.reshape(-1, 1)) * Z
-        pv = np.mean(moment, axis=0)
-        pv = pv * np.sqrt(Z.shape[0]) / np.std(moment, axis=0)
-        pv = np.max(np.abs(pv))
-        assert np.allclose(pv, primal_violation)
-        assert np.allclose(point_pre, 1.0, atol=5e-2)
-        assert np.allclose(eta.flatten(), np.ones(px) / px, atol=5e-2)
+        assert np.allclose(point_pre, 1.0, atol=6e-2)
+        assert np.allclose(eta.flatten(), np.ones(px) / px, atol=6e-2)
 
     np.random.seed(123)
     n, pz, px, pw = 10000, 3, 3, 0
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
 
     Dbar, _, eta, gamma, point_pre, std_pre, \
-        primal_violation, dual_violation = estimate_nuisances(Y, X, Z, Y,
-                                                              dual_type='Z',
-                                                              cv=2, n_jobs=-1, verbose=0,
-                                                              random_state=123)
+        _, _, _ = estimate_nuisances(Y, X, Z, Y,
+                                     dual_type='Z',
+                                     cv=2, n_jobs=-1, verbose=0,
+                                     random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
-    alphas = np.logspace(-3, 3, 100)
+    alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
-                            cv=2, random_state=123).fit(Z, X, Y)
+                            cv=2, random_state=123)
+    ivreg.fit(Z, X, Y)
     coef1 = ivreg.coef_
     assert gamma.shape == (px, 1)
     assert np.allclose(gamma.flatten(), coef1)
-    moment = (Y - X @ coef1.reshape(-1, 1)) * Z
-    pv = np.mean(moment, axis=0)
-    pv = pv * np.sqrt(Z.shape[0]) / np.std(moment, axis=0)
-    pv = np.max(np.abs(pv))
-    assert np.allclose(pv, dual_violation)
     assert np.allclose(gamma.flatten(), np.ones(px) / px, atol=5e-2)
 
     np.random.seed(123)
@@ -218,12 +210,12 @@ def test_estimate_nuisances():
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, 1.0)
 
     Dbar, Ybar, eta, gamma, point_pre, std_pre, \
-        primal_violation, dual_violation = estimate_nuisances(Y, X, X, Y,
-                                                              dual_type='Q',
-                                                              cv=5, n_jobs=-1, verbose=0,
-                                                              random_state=123)
+        _, _, _ = estimate_nuisances(Y, X, X, Y,
+                                     dual_type='Q',
+                                     cv=5, n_jobs=-1, verbose=0,
+                                     random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
-    alphas = np.logspace(-3, 3, 100)
+    alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -247,6 +239,69 @@ def test_estimate_nuisances():
     print(e_info)
 
 
+def test_violations():
+    np.random.seed(123)
+    n = 10000
+    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 0.0, 1.0, 0.0)
+    D = D - D.mean(axis=0, keepdims=True)
+    Z = Z - Z.mean(axis=0, keepdims=True)
+    X = X - X.mean(axis=0, keepdims=True)
+    for dual_type in ['Z', 'Q']:
+        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
+                                                                    dual_type=dual_type,
+                                                                    cv=5, n_jobs=-1, verbose=0,
+                                                                    random_state=123)
+        print(pval, dval, strength)
+        assert dval > 3.0
+        assert pval < 3.0
+        assert strength > 3.0
+
+    np.random.seed(123)
+    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 0.5, 1.0, 0.0)
+    D = D - D.mean(axis=0, keepdims=True)
+    Z = Z - Z.mean(axis=0, keepdims=True)
+    X = X - X.mean(axis=0, keepdims=True)
+    for dual_type in ['Z', 'Q']:
+        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
+                                                                    dual_type=dual_type,
+                                                                    cv=5, n_jobs=-1, verbose=0,
+                                                                    random_state=123)
+        print(pval, dval, strength)
+        assert dval < 3.0
+        assert pval < 3.0
+        assert strength > 3.0
+
+    np.random.seed(123)
+    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 1.0, 0.0, 1.0, 0.0)
+    D = D - D.mean(axis=0, keepdims=True)
+    Z = Z - Z.mean(axis=0, keepdims=True)
+    X = X - X.mean(axis=0, keepdims=True)
+    for dual_type in ['Z', 'Q']:
+        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
+                                                                    dual_type=dual_type,
+                                                                    cv=5, n_jobs=-1, verbose=0,
+                                                                    random_state=123)
+        print(pval, dval, strength)
+        assert dval < 3.0 if dual_type == 'Z' else dval > 3.0
+        assert pval < 3.0
+        assert strength < 3.0 if dual_type == 'Z' else strength > 3.0
+
+    np.random.seed(123)
+    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 1.0, 0.0, 0.0)
+    D = D - D.mean(axis=0, keepdims=True)
+    Z = Z - Z.mean(axis=0, keepdims=True)
+    X = X - X.mean(axis=0, keepdims=True)
+    for dual_type in ['Z', 'Q']:
+        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
+                                                                    dual_type=dual_type,
+                                                                    cv=5, n_jobs=-1, verbose=0,
+                                                                    random_state=123)
+        print(pval, dval, strength)
+        assert dval < 3.0
+        assert pval > 3.0
+        assert strength > 3.0
+
+
 def test_estimate_final():
     ''' Test that the nuisance parameter function accurately
     recovers the desired coefficients. We pass Z, X, Y.
@@ -256,7 +311,7 @@ def test_estimate_final():
     '''
     np.random.seed(123)
     Z, X, Y, _ = gen_iv_data(10000, 1, 1, 0, .5)
-    point, std, ids, inf = estimate_final(Z, X, Y)
+    point, std, inf = estimate_final(Z, X, Y)
     ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
                             model_first=None,
                             model_final=LinearRegression(fit_intercept=False),
@@ -265,11 +320,9 @@ def test_estimate_final():
                             random_state=123).fit(Z, X, Y)
     assert np.allclose(point, ivreg.coef_[0])
     assert np.allclose(std, ivreg.stderr_[0])
-    assert np.allclose(ids, np.sqrt(X.shape[0]) * np.mean(X * Z) / np.std(X * Z))
     assert np.allclose(((Y - X * point) * Z / np.mean(X * Z)).flatten(), inf)
     assert np.allclose(np.std(inf) / np.sqrt(Z.shape[0]), std)
     assert np.allclose(point, 1, atol=2e-2)
-    assert np.allclose(ids * np.std(X * Z) / np.sqrt(X.shape[0]), 0.5, atol=1e-2)
 
     with pytest.raises(AttributeError) as e_info:
         estimate_final(np.hstack([Z, Z]), X, Y)
@@ -424,16 +477,19 @@ def test_pde_fit():
                                                                     multitask=multitask,
                                                                     n_jobs=1, verbose=0,
                                                                     random_state=random_state)
+        assert pde.pw_ == pw
+        assert pde.pz_ == pz
+        assert pde.px_ == px
         assert np.allclose(pde.point_, point)
-        assert np.allclose(pde.std_, std)
+        assert np.allclose(pde.stderr_, std)
         assert np.allclose(pde.r2D_, r2D)
         assert np.allclose(pde.r2Z_, r2Z)
         assert np.allclose(pde.r2X_, r2X)
         assert np.allclose(pde.r2Y_, r2Y)
         assert np.allclose(pde.idstrength_, idstrength)
         assert np.allclose(pde.point_pre_, point_pre)
-        assert np.allclose(pde.std_pre_, std_pre)
-        assert pde.nobs_ == 100
+        assert np.allclose(pde.stderr_pre_, std_pre)
+        assert pde.nobs_ == n
         assert pde.dual_type_ == dual_type
         assert pde.categorical_ == categorical
         assert pde.cv_ == cv
@@ -454,7 +510,7 @@ def test_pde_fit():
         assert pde.gamma_.shape == (X.shape[1], 1) if dual_type == 'Q' else (Z.shape[1], 1)
         assert pde.primal_violation_ > 0
         assert pde.dual_violation_ > 0
-        assert pde.inf_.shape == (100,)
+        assert pde.inf_.shape == (n,)
 
         if categorical is True:
             splits2 = list(StratifiedKFold(n_splits=cv, shuffle=True,
@@ -505,10 +561,10 @@ def test_pde_summary():
 
     for alpha, value, decimals in [(.1, 0, 3), (.05, 1, 5)]:
         sm = pde.summary(alpha=alpha, value=value, decimals=decimals).tables
-        inf = NormalInferenceResults(pde.point_, pde.std_)
+        inf = NormalInferenceResults(pde.point_, pde.stderr_)
         assert sm[0].title == 'Parameter Summary'
         assert sm[0][1][1].data == f'{np.round(pde.point_, decimals)}'
-        assert sm[0][1][2].data == f'{np.round(pde.std_, decimals)}'
+        assert sm[0][1][2].data == f'{np.round(pde.stderr_, decimals)}'
         assert sm[0][1][3].data == f'{np.round(inf.zstat(value=value), decimals)}'
         assert sm[0][1][4].data == f'{np.format_float_scientific(inf.pvalue(value=value), precision=decimals)}'
         assert sm[0][1][5].data == f'{np.round(inf.conf_int(alpha=alpha)[0], decimals)}'
@@ -521,13 +577,13 @@ def test_pde_summary():
 
         assert f'{sm[2][1][1].data}' == f'{np.round(pde.idstrength_, decimals)}'
         assert f'{sm[2][1][2].data}' == \
-            f'{np.format_float_scientific(pvalue(pde.idstrength_), precision=decimals)}'
+            f'{np.format_float_scientific(chi2(1).sf(pde.idstrength_), precision=decimals)}'
         assert f'{sm[2][2][1].data}' == f'{np.round(pde.primal_violation_, decimals)}'
         assert f'{sm[2][2][2].data}' == \
-            f'{np.format_float_scientific(pvalue(pde.primal_violation_), precision=decimals)}'
+            f'{np.format_float_scientific(chi2(pz + 1).sf(pde.primal_violation_), precision=decimals)}'
         assert f'{sm[2][3][1].data}' == f'{np.round(pde.dual_violation_, decimals)}'
         assert f'{sm[2][3][2].data}' == \
-            f'{np.format_float_scientific(pvalue(pde.dual_violation_), precision=decimals)}'
+            f'{np.format_float_scientific(chi2(px).sf(pde.dual_violation_), precision=decimals)}'
 
         _, _, Fnonrobust, pnonrobust, _, \
             _, Feff, _, Feff_crit = weakiv_tests(pde.Dbar_, pde.Dres_, pde.Ybar_)
@@ -550,7 +606,7 @@ def test_pde_run_diagnostics():
     diag = pde.run_diagnostics()
     assert diag.dfbeta_.shape == (D.shape[0], 1)
     assert np.allclose(diag.point_, pde.point_)
-    assert np.allclose(diag.stderr_, pde.std_)
+    assert np.allclose(diag.stderr_, pde.stderr_)
 
 
 def test_pde_subsample_bootstrap():

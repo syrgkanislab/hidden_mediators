@@ -141,9 +141,9 @@ class Regularized2SLS(BaseEstimator):
 
 class RegularizedDualIVSolver(BaseEstimator):
     ''' Finds an l2-regularized solution to the system
-        E[QQ'] gamma = E[X D]
+        E[QQ'] coef = E[X D]
     using cross-validation based on out-of-sample moment violation
-        ||E[(D - gamma'Q) X]||_{infty}
+        ||E[(D - coef'Q) X]||_{infty}
     Here X can be thought as an instrument, Q as an endogenous
     treatment and D as an outcome. Calculation assumes that Q, X
     satisfy that E[QX'] = E[QQ'].
@@ -188,18 +188,20 @@ class RegularizedDualIVSolver(BaseEstimator):
                 JD = Q[train].T @ Q[train] / Q[train].shape[0]
                 JD += np.eye(Q[train].shape[1]) * (alpha / ntrain)
                 JDinv = np.linalg.pinv(JD)
-                gamma = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
-                Dbar[test] = D[test] - Q[test] @ gamma
+                coef = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
+                Dbar[test] = D[test] - Q[test] @ coef
             violation = np.linalg.norm(np.mean(Dbar * X, axis=0), ord=np.inf)
             if violation < best_violation:
                 best_violation = violation
                 alpha_best = alpha
 
-        # Calculate gamma using the best penalty choice
+        # Calculate coef using the best penalty choice
         JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])
         JDinv = np.linalg.pinv(JD)
-        gamma = JDinv @ (X.T @ D / X.shape[0])
+        coef = JDinv @ (X.T @ D / X.shape[0])
 
         # Storing class attributes
-        self.gamma_ = gamma.flatten()
+        self.coef_ = coef.flatten()
         self.alpha_ = alpha_best
+
+        return self

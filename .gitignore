@@ -162,3 +162,4 @@ cython_debug/
 #.idea/
 .Rhistory
 .RData
+/local_files

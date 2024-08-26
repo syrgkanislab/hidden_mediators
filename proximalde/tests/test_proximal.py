@@ -254,10 +254,10 @@ def test_violations():
         print(pval, dval, strength)
         assert dval > 3.0
         assert pval < 3.0
-        assert strength > 3.0
+        assert strength < 1.0 if dual_type == 'Q' else strength > 3.0
 
     np.random.seed(123)
-    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 0.5, 1.0, 0.0)
+    _, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 0.5, 1.0, 0.0)
     D = D - D.mean(axis=0, keepdims=True)
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
@@ -269,10 +269,10 @@ def test_violations():
         print(pval, dval, strength)
         assert dval < 3.0
         assert pval < 3.0
-        assert strength > 3.0
+        assert strength > 1.0
 
     np.random.seed(123)
-    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 1.0, 0.0, 1.0, 0.0)
+    _, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 1.0, 0.0, 1.0, 0.0)
     D = D - D.mean(axis=0, keepdims=True)
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
@@ -284,10 +284,10 @@ def test_violations():
         print(pval, dval, strength)
         assert dval < 3.0 if dual_type == 'Z' else dval > 3.0
         assert pval < 3.0
-        assert strength < 3.0 if dual_type == 'Z' else strength > 3.0
+        assert strength < 1.0
 
     np.random.seed(123)
-    W, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 1.0, 0.0, 0.0)
+    _, D, _, Z, X, Y = gen_data_no_controls(n, 1, 1, 1, 1., 1., .5, 0.0, 1.0, 0.0, 0.0)
     D = D - D.mean(axis=0, keepdims=True)
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
@@ -299,7 +299,7 @@ def test_violations():
         print(pval, dval, strength)
         assert dval < 3.0
         assert pval > 3.0
-        assert strength > 3.0
+        assert strength > 1.0
 
 
 def test_estimate_final():
@@ -738,3 +738,274 @@ def test_influential_set():
             assert est2.conf_int(alpha=0.05)[1] > est.conf_int(alpha=0.05)[1]
         else:
             assert est2.conf_int(alpha=0.05)[0] < est.conf_int(alpha=0.05)[0]
+
+
+def idstrength_violation_q(sm):
+    ''' Tests that when we have weak identification the idstrength statistic
+    is small and catches the violation of our assumptions.
+    '''
+    np.random.seed(123)
+    errors = []
+    strengths = []
+    covs = []
+    for _ in range(1):
+        n = 100000
+        pw = 1
+        pz, px = 1, 1
+        # Indirect effect is a*b, direct effect is c
+        a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        c = .5  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        # D has direct relationship to Z, Z has no relationship to M, 
+        # X has direct relationship to M, X has no direct relationship to Y
+        d = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        e = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        f = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
+        W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+        D = D.reshape(-1, 1)
+        D = D - D.mean(axis=0)
+        sd = np.sqrt(np.mean(D**2))
+        X = X - X.mean(axis=0)
+        Z = Z - Z.mean(axis=0)
+        Y = Y.reshape(-1, 1)
+        Y = Y - Y.mean(axis=0)
+
+        true_Zsq = (e * a + d)**2 * sd**2 + e**2 * sm**2 + sz**2
+        print('Z**2', np.mean(Z**2), true_Zsq)
+        assert np.allclose(np.mean(Z**2), true_Zsq, atol=5e-2)
+        true_Msq = sm**2 + a**2 * sd**2
+        true_XZ = f * (e * true_Msq + d * a * sd**2)
+        print('X*Z', np.mean(X*Z), true_XZ)
+        assert np.allclose(np.mean(X*Z), true_XZ, atol=5e-2)
+        true_DZ = (a * e + d) * sd**2
+        print('D*Z', np.mean(D * Z), true_DZ)
+        assert np.allclose(np.mean(D * Z), true_DZ, atol=5e-2)
+        true_DX = a * f * sd**2
+        print('D*X', np.mean(D * X), true_DX)
+        assert np.allclose(np.mean(D * X), true_DX, atol=5e-2)
+
+        cov = np.array([[sd**2, true_DZ], [true_DZ, true_Zsq]])
+        b = np.array([true_DX, true_XZ])
+        true_q = np.linalg.inv(cov) @ b
+        print('q', LinearRegression().fit(np.hstack([D, Z]), X).coef_, true_q)
+        assert np.allclose(LinearRegression().fit(np.hstack([D, Z]), X).coef_, true_q, atol=5e-2)
+
+        # true_Q = np.hstack([D, Z]) @ true_q.reshape(-1, 1)
+        # gamma = X*D / X*Q
+        true_gamma = true_DX / (true_DX * true_q[0] + true_XZ * true_q[1])
+        print("gamma", true_gamma)
+        # D^2 - gamma D * Q
+        true_strength = sd**2 - true_gamma * (true_q[0] * sd**2 + true_q[1] * true_DZ)
+        print("strength", true_strength)
+
+        est = ProximalDE(dual_type='Q', cv=3, semi=True,
+                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+        est.fit(W, D, Z, X, Y)
+        print('point, std', est.point_, est.stderr_)
+        print(est.gamma_, true_gamma)
+        assert np.allclose(est.gamma_, true_gamma, rtol=1e-1, atol=8e-2)
+        print(np.mean(est.Dres_ * est.Dbar_), true_strength)
+        assert np.allclose(np.mean(est.Dres_ * est.Dbar_), true_strength, rtol=1e-1, atol=5e-2)
+        print(est.idstrength_, est.primal_violation_, est.dual_violation_)
+        cov = (est.point_ - 2 * est.stderr_ <= c) & (est.point_ + 2 * est.stderr_ >= c)
+        print(cov, est.idstrength_)
+        assert cov or (est.idstrength_ < 1)
+        error = np.abs(est.point_ - c)
+        assert error < 2e-1 or (est.idstrength_ < 1)
+        errors.append(error)
+        strengths.append(est.idstrength_)
+        covs.append(cov)
+    return errors, strengths, covs
+
+
+def test_strength_violation_q():
+    errors = []
+    strengths = []
+    covs = []
+    for sm in np.linspace(0, .5, 10):
+        print(sm)
+        e, s, c = idstrength_violation_q(sm)
+        errors += e
+        strengths += s
+        covs += c
+
+
+def idstrength_violation_z(sm):
+    np.random.seed(123)
+    errors = []
+    strengths = []
+    covs = []
+    for _ in range(1):
+        n = 100000
+        pw = 1
+        pz, px = 1, 1
+        # Indirect effect is a*b, direct effect is c
+        a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        c = .5  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        # D has direct relationship to Z, Z has no relationship to M, 
+        # X has direct relationship to M, X has no direct relationship to Y
+        d = np.random.uniform(.5, 2)
+        e = np.random.uniform(.5, 2)
+        f = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+        sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
+        W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+        D = D.reshape(-1, 1)
+        D = D - D.mean(axis=0)
+        sd = np.sqrt(np.mean(D**2))
+        X = X - X.mean(axis=0)
+        Z = Z - Z.mean(axis=0)
+        Y = Y.reshape(-1, 1)
+        Y = Y - Y.mean(axis=0)
+
+        true_Zsq = (e * a + d)**2 * sd**2 + e**2 * sm**2 + sz**2
+        print('Z**2', np.mean(Z**2), true_Zsq)
+        assert np.allclose(np.mean(Z**2), true_Zsq, atol=7e-2)
+        true_Msq = sm**2 + a**2 * sd**2
+        true_XZ = f * (e * true_Msq + d * a * sd**2)
+        print('X*Z', np.mean(X*Z), true_XZ)
+        assert np.allclose(np.mean(X*Z), true_XZ, atol=7e-2)
+        true_DZ = (a * e + d) * sd**2
+        print('D*Z', np.mean(D * Z), true_DZ)
+        assert np.allclose(np.mean(D * Z), true_DZ, atol=5e-2)
+        true_DX = a * f * sd**2
+        print('D*X', np.mean(D * X), true_DX)
+        assert np.allclose(np.mean(D * X), true_DX, atol=5e-2)
+        # D*X / X*Z
+        true_gamma = true_DX / true_XZ
+        print("gamma", true_gamma)
+        # D^2 - gamma D * Z
+        true_strength = sd**2 - true_gamma * true_DZ
+        print("strength", true_strength)
+
+        est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+        est.fit(W, D, Z, X, Y)
+        print('point, std', est.point_, est.stderr_)
+        print(est.gamma_, true_gamma)
+        assert np.allclose(est.gamma_, true_gamma, rtol=1e-1, atol=8e-2)
+        print(np.mean(est.Dres_ * est.Dbar_), true_strength)
+        assert np.allclose(np.mean(est.Dres_ * est.Dbar_), true_strength, rtol=1e-1, atol=5e-2)
+        print(est.idstrength_, est.primal_violation_, est.dual_violation_)
+        cov = (est.point_ - 2 * est.stderr_ <= c) & (est.point_ + 2 * est.stderr_ >= c)
+        print(cov, est.idstrength_)
+        assert cov or (est.idstrength_ < 2)
+        error = np.abs(est.point_ - c)
+        assert (error < .4) or (est.idstrength_ < 2)
+        errors.append(error)
+        strengths.append(est.idstrength_)
+        covs.append(cov)
+    return errors, strengths, covs
+
+
+def test_strength_violation_z():
+    errors = []
+    strengths = []
+    covs = []
+    for sm in np.linspace(0, .5, 10):
+        print(sm)
+        e, s, c = idstrength_violation_z(sm)
+        errors += e
+        strengths += s
+        covs += c
+
+
+def test_primal_violation_caught_z():
+    ''' Test that we catch a violation of the existence of the
+    primal solution
+    '''
+    np.random.seed(123)
+    n = 100000
+    pw = 1
+    pz, px = 1, 1
+    # Indirect effect is a*b, direct effect is c
+    a, b, c = .7, .8, .5
+    # D has no direct relationship to Z, Z has direct relationship to M,
+    # X has no direct relationship to M, X has direct relationship to Y
+    d, e, f, g = 0.0, 0.5, 0.0, 1.0
+    sm, sz, sx, sy = 2, 1, 1, 1
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    D = D.reshape(-1, 1)
+    D = D - D.mean(axis=0)
+    X = X - X.mean(axis=0)
+    Z = Z - Z.mean(axis=0)
+    Y = Y.reshape(-1, 1)
+    Y = Y - Y.mean(axis=0)
+
+    est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+    est.fit(W, D, Z, X, Y)
+    print(est.point_, est.stderr_)
+    print(est.idstrength_, est.primal_violation_, est.dual_violation_)
+    assert est.idstrength_ > 2
+    assert est.primal_violation_ > 3.84
+    assert est.dual_violation_ < 4.0
+
+
+def test_dual_violation_z():
+    ''' Test that we catch a violation of the existence of the
+    dual solution
+    '''
+    np.random.seed(1236)
+    n = 100000
+    pw = 1
+    pz, px = 1, 1
+    # Indirect effect is a*b, direct effect is c
+    a, b, c = .7, .8, .5
+    # D has no direct relationship to Z, Z has no relationship to M,
+    # X has direct relationship to M, X has direct relationship to Y
+    d, e, f, g = 0.0, 0.0, 1.0, 1.0
+    sm, sz, sx, sy = 2, 1, 1, 1
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    D = D.reshape(-1, 1)
+    D = D - D.mean(axis=0)
+    X = X - X.mean(axis=0)
+    Z = Z - Z.mean(axis=0)
+    Y = Y.reshape(-1, 1)
+    Y = Y - Y.mean(axis=0)
+    est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+    est.fit(W, D, Z, X, Y)
+
+    print(est.idstrength_, est.primal_violation_, est.dual_violation_)
+    assert est.idstrength_ > 2
+    assert est.primal_violation_ < 4
+    assert est.dual_violation_ > 4
+
+
+def test_accuracy_no_violations():
+    ''' Test that we recover truth when assumptions hold
+    '''
+    np.random.seed(123)
+    for n in [10000, 100000]:
+        for pz, px in [(3, 2), (2, 3)]:
+            for _ in range(5):
+                print(n, pz, px)
+                pw = 1
+                # Indirect effect is a*b, direct effect is c
+                a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                c = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                # D has direct relationship to Z, Z has no relationship to M, 
+                # X has direct relationship to M, X has no direct relationship to Y
+                d = np.random.uniform(.5, 2)
+                e = np.random.uniform(.5, 2)
+                f = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                sm = np.random.uniform(.5, 2)
+                sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
+                W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g,
+                                                        sm=sm, sz=sz, sx=sx, sy=sy)
+
+                est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                                 multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                est.fit(W, D, Z, X, Y)
+                print(c, est.point_, est.stderr_)
+                cov = (est.point_ - 2 * est.stderr_ <= c) & (est.point_ + 2 * est.stderr_ >= c)
+                print(cov, est.idstrength_)
+                assert cov and (est.idstrength_ > 2)
+                error = np.abs(est.point_ - c)
+                assert (error < .2) and (est.idstrength_ > 2)

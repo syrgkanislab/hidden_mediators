@@ -25,7 +25,7 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g):
     return W, D, M, Z, X, Y
 
 
-def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g):
+def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data
 
@@ -43,8 +43,8 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g):
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
-    M = a * D + np.random.normal(0, 2, n)
-    Z = (e * M + d * D).reshape(-1, 1) + np.random.normal(0, 1, (n, pz))
-    X = f * M.reshape(-1, 1) + np.random.normal(0, 1, (n, px))
-    Y = b * M + c * D + g * X[:, 0] + np.random.normal(0, 1, n)
+    M = a * D + sm * np.random.normal(0, 1, n)
+    Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
+    X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y

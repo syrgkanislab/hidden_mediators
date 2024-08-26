@@ -164,15 +164,14 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     dual_violation_cov = dual_moments.T @ dual_moments / nobs
     dual_violation_stat = nobs * dual_violation.T @ np.linalg.pinv(dual_violation_cov) @ dual_violation
 
-    # standardized strength of jacobian that goes into the denominator
-    idstrength = np.mean(Dres * Dbar)**2
-    idstrength /= np.var(Dres * Dbar) / nobs
-
     # train on all the data to get coefficient gamma
     ivreg.fit(Xres, dualIV, Dres)
     gamma = ivreg.coef_.reshape(-1, 1)
     # ``instrument'' for the final stage Neyman orthogonal moment
     Dbar = Dres - dualIV @ gamma
+
+    # standardized strength of jacobian that goes into the denominator
+    idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength
@@ -480,7 +479,7 @@ class ProximalDE(BaseEstimator):
         strength = np.round(self.idstrength_, decimals)
         strength_pval = np.format_float_scientific(scipy.stats.chi2(1).sf(self.idstrength_),
                                                    precision=decimals)
-        strength_crit = np.round(scipy.stats.chi2(1).ppf(1 - alpha), decimals)
+        strength_crit = '~ 1'  # np.round(scipy.stats.chi2(1).ppf(1 - alpha), decimals)
         pviolation = np.round(self.primal_violation_, decimals)
         pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
         pviolation_pval = np.format_float_scientific(pviolation_pval,
@@ -519,20 +518,25 @@ class ProximalDE(BaseEstimator):
 
         sm.add_extra_txt([
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
-            'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$',
-            '1. Identification strength $n E_n[\\tilde{D} V]^2 / Var_n(\\tilde{D} V)$ ',
-            'Under the null that $E[\\tilde{D} V]=0$, it follows approximately a chi2(1) distribution',
+            'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
+            'and tilde denoting residual after removing the part predictable from $W$.',
+            '1. Identification strength $\\sqrt{n} |E_n[\\tilde{D} V]|$ ',
             'A small statistic implies that the effect is weakly identified because '
-            'the instrument Z is too correlated with the treatment.',
+            'the instrument V is too weakly correlated with the treatment.',
+            'This can be caused if the mediator is very predictable from the treatment.',
             '2. Maximum violation of primal moments $n E_n[e U]^\\top E_n[e^2 U U^\\top]^{-1} E_n[e U]$.',
             'Under the null it follows approximately a chi2(dim(z) + 1) distribution',
             'A large primal violation is a test that can reject '
             'the linear specification of the outcome bridge function',
+            'For instance, large violation can occur if X is weakly correlated with the mediator, '
+            'but D and Z are correlated with the mediator.',
             '3. Maximum violation of dual moments '
             '$n E_n[V \\tilde{X}]^\\top E_n[V^2 \\tilde{X}\\tilde{X}^\\top]^{-1} E_n[V \\tilde{X}]$ ',
             'Under the null, it follows approximately a chi2(dim(x)) distribution',
             'A large dual violation is a test whether the instrument Z is a weak treatment proxy '
-            'and implies weak identification.',
+            'and implies weak identification. ',
+            'For instance, large violation can occur if Z is weakly correlated with the mediator, '
+            'while X and D are correlated with the mediator.',
             '4. These are weak IV tests with $V$ as the instrument, $\\tilde{D}$ as the treatment '
             'and $\\tilde{Y} - \\tilde{X}^\\top \\eta$ as the outcome.'])
 

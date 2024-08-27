@@ -182,12 +182,11 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
 
     # standardized strength of jacobian that goes into the denominator
     idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
-    if hasattr(ivreg, 'inf_'):
-        inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg.inf_
-        print('idstrength_std', np.sqrt(np.mean(inf_idstrength**2)))
+    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg.inf_
+    idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
-        primal_violation_stat, dual_violation_stat, idstrength
+        primal_violation_stat, dual_violation_stat, idstrength, idstrength_std
 
 
 def estimate_final(Dbar, Dres, Ybar):
@@ -218,7 +217,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
     '''
     # estimate the nuisance coefficients that are required
     # for the orthogonal moment
-    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength = \
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std = \
         estimate_nuisances(Dres, Zres, Xres, Yres,
                            dual_type=dual_type, ivreg_type=ivreg_type,
                            cv=cv, n_jobs=n_jobs,
@@ -228,7 +227,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
     # estimate target parameter using the orthogonal moment
     point_debiased, std_debiased, inf = estimate_final(Dbar, Dres, Ybar)
 
-    return point_debiased, std_debiased, idstrength, point_pre, std_pre, \
+    return point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, \
         eta, gamma, inf, Dbar, Ybar
 
 
@@ -267,7 +266,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='2sls', c
                      n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
-    point_debiased, std_debiased, idstrength, point_pre, std_pre, *_ = \
+    point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
         second_stage(Dres, Zres, Xres, Yres,
                      dual_type=dual_type, ivreg_type=ivreg_type,
                      cv=cv, n_jobs=n_jobs, verbose=verbose,
@@ -276,7 +275,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='2sls', c
     # reporting point estimate and standard error of Controlled Direct Effect
     # and R^ performance of nuisance models
     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
-        idstrength, point_pre, std_pre
+        idstrength, idstrength_std, point_pre, std_pre
 
 
 def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
@@ -369,7 +368,7 @@ class ProximalDE(BaseEstimator):
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0
-        Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, idstrength = \
+        Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, idstrength, idstrength_std = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
                                dual_type=self.dual_type, ivreg_type=self.ivreg_type,
                                cv=self.cv, n_jobs=self.n_jobs,
@@ -417,6 +416,7 @@ class ProximalDE(BaseEstimator):
         self.point_ = point_debiased
         self.stderr_ = std_debiased
         self.idstrength_ = idstrength
+        self.idstrength_std_ = idstrength_std
         self.inf_ = inf
 
         return self
@@ -499,24 +499,27 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength = np.round(self.idstrength_, decimals)
-        strength_pval = np.format_float_scientific(scipy.stats.chi2(1).sf(self.idstrength_),
-                                                   precision=decimals)
+        strength_dist = f'N(0, s={np.round(self.idstrength_std_, decimals)})'
+        strength_pval = 'N/A'
         strength_crit = '~ 1'  # np.round(scipy.stats.chi2(1).ppf(1 - alpha), decimals)
         pviolation = np.round(self.primal_violation_, decimals)
+        pviolation_dist = f'chi2(df={self.pz_ + 1})'
         pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
         pviolation_pval = np.format_float_scientific(pviolation_pval,
                                                      precision=decimals)
         pviolation_crit = np.round(scipy.stats.chi2(self.pz_ + 1).ppf(1 - alpha), decimals)
         dviolation = np.round(self.dual_violation_, decimals)
+        dviolation_dist = f'chi2(df={self.px_})'
         dviolation_pval = scipy.stats.chi2(self.px_).sf(self.dual_violation_)
         dviolation_pval = np.format_float_scientific(dviolation_pval,
                                                      precision=decimals)
         dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
         res = np.array([[strength, pviolation, dviolation],
+                        [strength_dist, pviolation_dist, dviolation_dist],
                         [strength_pval, pviolation_pval, dviolation_pval],
                         [strength_crit, pviolation_crit, dviolation_crit],
                         ['statistic > critical', 'statistic < critical', 'statistic < critical']]).T
-        headers = ['statistic', 'p-value', 'critical value', 'ideal']
+        headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal']
         index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3']
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
@@ -533,7 +536,7 @@ class ProximalDE(BaseEstimator):
                         [np.format_float_scientific(pnonrobust[0], precision=decimals),
                          np.format_float_scientific(probust[0], precision=decimals),
                          'N/A'],
-                        ['N/A', 'N/A', np.round(Feff_crit[0], decimals)]]).T
+                        ['~10', '~10', np.round(Feff_crit[0], decimals)]]).T
         headers = ['statistic', 'df1', 'df2', 'Keff', 'p-value', 'critical-value']
         index = ['F-nonrobust', 'F-robust', 'F-effective']
         sm.tables.append(SimpleTable(res, headers, index, "Weak IV tests^4"))

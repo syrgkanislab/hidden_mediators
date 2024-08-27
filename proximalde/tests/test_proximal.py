@@ -167,10 +167,10 @@ def test_estimate_nuisances():
 
     for dual_type in ['Z', 'Q']:
         _, Ybar, eta, gamma, point_pre, std_pre, \
-            _, _, _ = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
-                                         dual_type=dual_type,
-                                         cv=2, n_jobs=-1, verbose=0,
-                                         random_state=123)
+            _, _, _, _ = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
+                                            dual_type=dual_type,
+                                            cv=2, n_jobs=-1, verbose=0,
+                                            random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
         alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
         ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -189,10 +189,10 @@ def test_estimate_nuisances():
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
 
     Dbar, _, eta, gamma, point_pre, std_pre, \
-        _, _, _ = estimate_nuisances(Y, X, Z, Y,
-                                     dual_type='Z',
-                                     cv=2, n_jobs=-1, verbose=0,
-                                     random_state=123)
+        _, _, _, _ = estimate_nuisances(Y, X, Z, Y,
+                                        dual_type='Z',
+                                        cv=2, n_jobs=-1, verbose=0,
+                                        random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
     alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -210,10 +210,10 @@ def test_estimate_nuisances():
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, 1.0)
 
     Dbar, Ybar, eta, gamma, point_pre, std_pre, \
-        _, _, _ = estimate_nuisances(Y, X, X, Y,
-                                     dual_type='Q',
-                                     cv=5, n_jobs=-1, verbose=0,
-                                     random_state=123)
+        _, _, _, _ = estimate_nuisances(Y, X, X, Y,
+                                        dual_type='Q',
+                                        cv=5, n_jobs=-1, verbose=0,
+                                        random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
     alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -247,10 +247,10 @@ def test_violations():
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
     for dual_type in ['Z', 'Q']:
-        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
-                                                                    dual_type=dual_type,
-                                                                    cv=5, n_jobs=-1, verbose=0,
-                                                                    random_state=123)
+        _, _, _, _, _, _, pval, dval, strength, _ = estimate_nuisances(D, Z, X, Y,
+                                                                       dual_type=dual_type,
+                                                                       cv=5, n_jobs=-1, verbose=0,
+                                                                       random_state=123)
         print(pval, dval, strength)
         assert dval > 3.0
         assert pval < 3.0
@@ -262,10 +262,10 @@ def test_violations():
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
     for dual_type in ['Z', 'Q']:
-        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
-                                                                    dual_type=dual_type,
-                                                                    cv=5, n_jobs=-1, verbose=0,
-                                                                    random_state=123)
+        _, _, _, _, _, _, pval, dval, strength, _ = estimate_nuisances(D, Z, X, Y,
+                                                                       dual_type=dual_type,
+                                                                       cv=5, n_jobs=-1, verbose=0,
+                                                                       random_state=123)
         print(pval, dval, strength)
         assert dval < 3.0
         assert pval < 3.0
@@ -277,10 +277,10 @@ def test_violations():
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
     for dual_type in ['Z', 'Q']:
-        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
-                                                                    dual_type=dual_type,
-                                                                    cv=5, n_jobs=-1, verbose=0,
-                                                                    random_state=123)
+        _, _, _, _, _, _, pval, dval, strength, _ = estimate_nuisances(D, Z, X, Y,
+                                                                       dual_type=dual_type,
+                                                                       cv=5, n_jobs=-1, verbose=0,
+                                                                       random_state=123)
         print(pval, dval, strength)
         assert dval < 3.0 if dual_type == 'Z' else dval > 3.0
         assert pval < 3.0
@@ -292,10 +292,10 @@ def test_violations():
     Z = Z - Z.mean(axis=0, keepdims=True)
     X = X - X.mean(axis=0, keepdims=True)
     for dual_type in ['Z', 'Q']:
-        _, _, _, _, _, _, pval, dval, strength = estimate_nuisances(D, Z, X, Y,
-                                                                    dual_type=dual_type,
-                                                                    cv=5, n_jobs=-1, verbose=0,
-                                                                    random_state=123)
+        _, _, _, _, _, _, pval, dval, strength, _ = estimate_nuisances(D, Z, X, Y,
+                                                                       dual_type=dual_type,
+                                                                       cv=5, n_jobs=-1, verbose=0,
+                                                                       random_state=123)
         print(pval, dval, strength)
         assert dval < 3.0
         assert pval > 3.0
@@ -469,14 +469,14 @@ def test_pde_fit():
                          n_jobs=1, random_state=random_state)
         pde.fit(W, D, Z, X, Y,)
         point, std, r2D, r2Z, r2X, r2Y, \
-            idstrength, point_pre, std_pre = proximal_direct_effect(W, D, Z, X, Y,
-                                                                    dual_type=dual_type,
-                                                                    categorical=categorical,
-                                                                    cv=cv,
-                                                                    semi=semi,
-                                                                    multitask=multitask,
-                                                                    n_jobs=1, verbose=0,
-                                                                    random_state=random_state)
+            idstrength, idstrength_std, point_pre, std_pre = proximal_direct_effect(W, D, Z, X, Y,
+                                                                                    dual_type=dual_type,
+                                                                                    categorical=categorical,
+                                                                                    cv=cv,
+                                                                                    semi=semi,
+                                                                                    multitask=multitask,
+                                                                                    n_jobs=1, verbose=0,
+                                                                                    random_state=random_state)
         assert pde.pw_ == pw
         assert pde.pz_ == pz
         assert pde.px_ == px
@@ -487,6 +487,7 @@ def test_pde_fit():
         assert np.allclose(pde.r2X_, r2X)
         assert np.allclose(pde.r2Y_, r2Y)
         assert np.allclose(pde.idstrength_, idstrength)
+        assert np.allclose(pde.idstrength_std_, idstrength_std)
         assert np.allclose(pde.point_pre_, point_pre)
         assert np.allclose(pde.stderr_pre_, std_pre)
         assert pde.nobs_ == n
@@ -576,13 +577,11 @@ def test_pde_summary():
         assert f'{sm[1][1][4].data}' == f'{np.round(pde.r2Y_, decimals)}'
 
         assert f'{sm[2][1][1].data}' == f'{np.round(pde.idstrength_, decimals)}'
-        assert f'{sm[2][1][2].data}' == \
-            f'{np.format_float_scientific(chi2(1).sf(pde.idstrength_), precision=decimals)}'
         assert f'{sm[2][2][1].data}' == f'{np.round(pde.primal_violation_, decimals)}'
-        assert f'{sm[2][2][2].data}' == \
+        assert f'{sm[2][2][3].data}' == \
             f'{np.format_float_scientific(chi2(pz + 1).sf(pde.primal_violation_), precision=decimals)}'
         assert f'{sm[2][3][1].data}' == f'{np.round(pde.dual_violation_, decimals)}'
-        assert f'{sm[2][3][2].data}' == \
+        assert f'{sm[2][3][3].data}' == \
             f'{np.format_float_scientific(chi2(px).sf(pde.dual_violation_), precision=decimals)}'
 
         _, _, Fnonrobust, pnonrobust, _, \

@@ -109,7 +109,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
     alphas = np.logspace(0, 3, 10) * nobs**(0.1)
     if ivreg_type == '2sls':
         ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                    alphas=alphas),
+                                                      alphas=alphas),
                                 model_first=Ridge(fit_intercept=False),
                                 model_final=RidgeCV(fit_intercept=False,
                                                     alphas=alphas),
@@ -149,7 +149,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
         dualIV = Zres
         if ivreg_type == '2sls':
             ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                        alphas=alphas),
+                                                          alphas=alphas),
                                     model_first=Ridge(fit_intercept=False),
                                     model_final=RidgeCV(fit_intercept=False,
                                                         alphas=alphas),
@@ -314,7 +314,7 @@ class ProximalDE(BaseEstimator):
                  verbose=0,
                  random_state=None):
         self.dual_type = dual_type
-        self.ivreg_type=ivreg_type
+        self.ivreg_type = ivreg_type
         self.categorical = categorical
         self.cv = cv
         self.semi = semi

@@ -756,7 +756,7 @@ def idstrength_violation_q(sm):
         a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         c = .5  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-        # D has direct relationship to Z, Z has no relationship to M, 
+        # D has direct relationship to Z, Z has no relationship to M,
         # X has direct relationship to M, X has no direct relationship to Y
         d = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         e = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
@@ -845,7 +845,7 @@ def idstrength_violation_z(sm):
         a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         c = .5  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-        # D has direct relationship to Z, Z has no relationship to M, 
+        # D has direct relationship to Z, Z has no relationship to M,
         # X has direct relationship to M, X has no direct relationship to Y
         d = np.random.uniform(.5, 2)
         e = np.random.uniform(.5, 2)
@@ -990,7 +990,7 @@ def test_accuracy_no_violations():
                     a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
                     b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
                     c = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                    # D has direct relationship to Z, Z has no relationship to M, 
+                    # D has direct relationship to Z, Z has no relationship to M,
                     # X has direct relationship to M, X has no direct relationship to Y
                     d = np.random.uniform(.5, 2)
                     e = np.random.uniform(.5, 2)

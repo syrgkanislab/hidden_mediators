@@ -8,7 +8,7 @@ from joblib import Parallel, delayed
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
 from .crossfit import fit_predict
-from .ivreg import Regularized2SLS, RegularizedDualIVSolver
+from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .ivtests import weakiv_tests
 from .diagnostics import IVDiagnostics
@@ -72,7 +72,7 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
+def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -107,15 +107,20 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
     alphas = np.logspace(0, 3, 10) * nobs**(0.1)
-    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                  alphas=alphas),
-                            model_first=Ridge(fit_intercept=False),
-                            model_final=RidgeCV(fit_intercept=False,
-                                                alphas=alphas),
-                            cv=cv,
-                            n_jobs=n_jobs,
-                            verbose=verbose,
-                            random_state=random_state)
+    if ivreg_type == '2sls':
+        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+                                                    alphas=alphas),
+                                model_first=Ridge(fit_intercept=False),
+                                model_final=RidgeCV(fit_intercept=False,
+                                                    alphas=alphas),
+                                cv=cv,
+                                n_jobs=n_jobs,
+                                verbose=verbose,
+                                random_state=random_state)
+    elif ivreg_type == 'adv':
+        ivreg = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+    else:
+        raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
     # calculate out-of-sample moment violation
     primal_moments = np.zeros(DZres.shape)
@@ -142,15 +147,20 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z',
     elif dual_type == 'Z':
         alphas = np.logspace(0, 3, 10) * nobs**(0.1)
         dualIV = Zres
-        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                      alphas=alphas),
-                                model_first=Ridge(fit_intercept=False),
-                                model_final=RidgeCV(fit_intercept=False,
-                                                    alphas=alphas),
-                                cv=cv,
-                                n_jobs=n_jobs,
-                                verbose=verbose,
-                                random_state=random_state)
+        if ivreg_type == '2sls':
+            ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+                                                        alphas=alphas),
+                                    model_first=Ridge(fit_intercept=False),
+                                    model_final=RidgeCV(fit_intercept=False,
+                                                        alphas=alphas),
+                                    cv=cv,
+                                    n_jobs=n_jobs,
+                                    verbose=verbose,
+                                    random_state=random_state)
+        elif ivreg_type == 'adv':
+            ivreg = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+        else:
+            raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
     else:
         raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
 
@@ -198,7 +208,7 @@ def estimate_final(Dbar, Dres, Ybar):
     return point_debiased[0, 0], std_debiased, inf.flatten()
 
 
-def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z',
+def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
     ''' Estimate nuisance parameters eta and gamma and then estimate
     target parameter using the nuisances.
@@ -207,7 +217,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z',
     # for the orthogonal moment
     Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength = \
         estimate_nuisances(Dres, Zres, Xres, Yres,
-                           dual_type=dual_type,
+                           dual_type=dual_type, ivreg_type=ivreg_type,
                            cv=cv, n_jobs=n_jobs,
                            verbose=verbose,
                            random_state=random_state)
@@ -219,13 +229,16 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z',
         eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
+def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='2sls', categorical=True,
                            cv=5, semi=True, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
     dual_type: one of {'Z', 'Q'}
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
+    ivreg_type: on of {'2sls', 'adv'}
+        Whether to use regularized 2SLS or regularized adversarial IV to
+        solve the l2 regularized IV regressions for the nuisances.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
@@ -253,7 +266,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', categorical=True,
 
     point_debiased, std_debiased, idstrength, point_pre, std_pre, *_ = \
         second_stage(Dres, Zres, Xres, Yres,
-                     dual_type=dual_type,
+                     dual_type=dual_type, ivreg_type=ivreg_type,
                      cv=cv, n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
@@ -276,6 +289,9 @@ class ProximalDE(BaseEstimator):
     dual_type: one of {'Z', 'Q'}
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
+    ivreg_type: on of {'2sls', 'adv'}
+        Whether to use regularized 2SLS or regularized adversarial IV to
+        solve the l2 regularized IV regressions for the nuisances.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
@@ -289,6 +305,7 @@ class ProximalDE(BaseEstimator):
 
     def __init__(self, *,
                  dual_type='Z',
+                 ivreg_type='2sls',
                  categorical=True,
                  cv=5,
                  semi=True,
@@ -297,6 +314,7 @@ class ProximalDE(BaseEstimator):
                  verbose=0,
                  random_state=None):
         self.dual_type = dual_type
+        self.ivreg_type=ivreg_type
         self.categorical = categorical
         self.cv = cv
         self.semi = semi
@@ -350,7 +368,7 @@ class ProximalDE(BaseEstimator):
         # E[(Dres - gamma'Zres) Xres] = 0
         Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, idstrength = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
-                               dual_type=self.dual_type,
+                               dual_type=self.dual_type, ivreg_type=self.ivreg_type,
                                cv=self.cv, n_jobs=self.n_jobs,
                                verbose=self.verbose,
                                random_state=self.random_state)
@@ -366,6 +384,7 @@ class ProximalDE(BaseEstimator):
         self.pz_ = Z.shape[1]
         self.px_ = X.shape[1]
         self.dual_type_ = self.dual_type
+        self.ivreg_type_ = self.ivreg_type
         self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
@@ -693,6 +712,7 @@ class ProximalDE(BaseEstimator):
                                   self.Xres_[sub],
                                   self.Yres_[sub],
                                   dual_type=self.dual_type_,
+                                  ivreg_type=self.ivreg_type_,
                                   cv=self.cv_,
                                   n_jobs=1, verbose=0,
                                   random_state=None)
@@ -718,6 +738,7 @@ class ProximalDE(BaseEstimator):
                                             self.X_[sub],
                                             self.Y_[sub],
                                             dual_type=self.dual_type_,
+                                            ivreg_type=self.ivreg_type_,
                                             categorical=self.categorical_,
                                             cv=self.cv_,
                                             semi=self.semi_,

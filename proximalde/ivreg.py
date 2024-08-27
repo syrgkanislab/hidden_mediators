@@ -205,3 +205,77 @@ class RegularizedDualIVSolver(BaseEstimator):
         self.alpha_ = alpha_best
 
         return self
+
+
+def advIV(Z, X, Y, alpha):
+    n = Z.shape[0]
+    XZ = X.T @ Z / n
+    ZZinv = np.linalg.pinv(Z.T @ Z / n)
+    Q = Z @ ZZinv @ XZ.T
+    XX = X.T @ X / n
+    QY = Q.T @ Y / n
+    XQ = X.T @ Q / n
+    Jinv = np.linalg.pinv(XQ + (alpha / n) * XX)
+    coef = Jinv @ QY
+    inf = Q * Y - (Q + (alpha / n) * X) * (X @ coef)
+    inf = inf @ Jinv.T
+    return coef, Q, inf
+
+
+class AdvIV(BaseEstimator):
+    ''' Regularized Adversarial IV estimation
+    '''
+    def __init__(self, *, alphas,
+                 cv=5,
+                 random_state=None):
+        self.alphas = alphas
+        self.cv = cv
+        self.random_state = random_state
+
+    def fit(self, Z, X, Y):
+        ''' Fit linear system solution
+
+        Parameters
+        ----------
+        Z : array (n, pz) or (n,)
+        X : array (n, pd) or (n,)
+        Y : array (n, 1) or (n,)
+
+        Returns
+        -------
+        self : object
+        '''
+        Z, X, Y = _check_input(Z, X, Y)
+        assert Y.shape[1] == 1, "Y should be scalar!"
+        nobs = Z.shape[0]
+
+        # regularized first stage with cross-fitting
+        self.cv_ = check_cv(self.cv)
+        if hasattr(self.cv_, 'shuffle'):
+            self.cv_.shuffle = True
+        if hasattr(self.cv_, 'random_state'):
+            self.cv_.random_state = self.random_state
+        splits = list(self.cv_.split(Z, Y))
+
+        mval_best = np.inf
+        for alpha in self.alphas:
+            moment = np.zeros(Z.shape)
+            for train, test in splits:
+                coef, _, _ = advIV(Z[train], X[train], Y[train], alpha)
+                moment[test] = (Y[test] - X[test] @ coef) * Z[test]
+            mval = np.linalg.norm(np.mean(moment, axis=0), ord=2)
+            if mval < mval_best:
+                mval_best = mval
+                alpha_best = alpha
+
+        coef, Q, inf = advIV(Z, X, Y, alpha_best)
+        cov = (inf.T @ inf / nobs)
+        stderr = np.sqrt(np.diag(cov) / nobs)
+
+        # Storing class attributes
+        self.coef_ = coef.flatten()
+        self.alpha_ = alpha_best
+        self.stderr_ = stderr.flatten()
+        self.Q_ = Q
+
+        return self

@@ -982,30 +982,31 @@ def test_accuracy_no_violations():
     np.random.seed(123)
     for n in [10000, 100000]:
         for pz, px in [(3, 2), (2, 3)]:
-            for _ in range(5):
-                print(n, pz, px)
-                pw = 1
-                # Indirect effect is a*b, direct effect is c
-                a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                c = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                # D has direct relationship to Z, Z has no relationship to M, 
-                # X has direct relationship to M, X has no direct relationship to Y
-                d = np.random.uniform(.5, 2)
-                e = np.random.uniform(.5, 2)
-                f = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                sm = np.random.uniform(.5, 2)
-                sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
-                W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g,
-                                                        sm=sm, sz=sz, sx=sx, sy=sy)
+            for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'), ('Q', '2sls')]:
+                for _ in range(5):
+                    print(n, pz, px, dual_type, ivreg_type)
+                    pw = 1
+                    # Indirect effect is a*b, direct effect is c
+                    a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                    b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                    c = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                    # D has direct relationship to Z, Z has no relationship to M, 
+                    # X has direct relationship to M, X has no direct relationship to Y
+                    d = np.random.uniform(.5, 2)
+                    e = np.random.uniform(.5, 2)
+                    f = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                    g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
+                    sm = np.random.uniform(.5, 2)
+                    sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
+                    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g,
+                                                            sm=sm, sz=sz, sx=sx, sy=sy)
 
-                est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                                 multitask=False, n_jobs=-1, random_state=3, verbose=0)
-                est.fit(W, D, Z, X, Y)
-                print(c, est.point_, est.stderr_)
-                cov = (est.point_ - 2 * est.stderr_ <= c) & (est.point_ + 2 * est.stderr_ >= c)
-                print(cov, est.idstrength_)
-                assert cov and (est.idstrength_ > 2)
-                error = np.abs(est.point_ - c)
-                assert (error < .2) and (est.idstrength_ > 2)
+                    est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
+                                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                    est.fit(W, D, Z, X, Y)
+                    print(c, est.point_, est.stderr_)
+                    cov = (est.point_ - 3 * est.stderr_ <= c) & (est.point_ + 3 * est.stderr_ >= c)
+                    print(cov, est.idstrength_)
+                    assert cov and (est.idstrength_ > 2)
+                    error = np.abs(est.point_ - c)
+                    assert (error < .2) and (est.idstrength_ > 2)

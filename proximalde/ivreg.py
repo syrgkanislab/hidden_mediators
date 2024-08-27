@@ -125,9 +125,10 @@ class Regularized2SLS(BaseEstimator):
         J = Qc.T @ Qc / Qc.shape[0] + np.eye(Qc.shape[1]) * (alpha / Qc.shape[0])
         Jinv = np.linalg.pinv(J)
         epsilon = (Yc - Dc @ self.coef_).reshape(-1, 1) * Qc
-        Sigma = epsilon.T @ epsilon / epsilon.shape[0]
-        Cov = Jinv @ Sigma @ Jinv.T
+        inf = epsilon @ Jinv.T
+        Cov = inf.T @ inf / inf.shape[0]
         self.stderr_ = np.sqrt(np.diag(Cov) / Qc.shape[0])
+        self.inf_ = inf
         # store alternative way of calculating coefficient for
         # testing purposes
         self.coef_alt_ = (Jinv @ (Qc.T @ Yc / Qc.shape[0])).flatten()
@@ -199,10 +200,13 @@ class RegularizedDualIVSolver(BaseEstimator):
         JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])
         JDinv = np.linalg.pinv(JD)
         coef = JDinv @ (X.T @ D / X.shape[0])
+        inf = X * (D - Q @ coef).reshape(-1, 1)
+        inf = inf @ JDinv.T
 
         # Storing class attributes
         self.coef_ = coef.flatten()
         self.alpha_ = alpha_best
+        self.inf_ = inf
 
         return self
 
@@ -277,5 +281,6 @@ class AdvIV(BaseEstimator):
         self.alpha_ = alpha_best
         self.stderr_ = stderr.flatten()
         self.Q_ = Q
+        self.inf_ = inf
 
         return self

@@ -182,6 +182,9 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
 
     # standardized strength of jacobian that goes into the denominator
     idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
+    if hasattr(ivreg, 'inf_'):
+        inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg.inf_
+        print('idstrength_std', np.sqrt(np.mean(inf_idstrength**2)))
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength

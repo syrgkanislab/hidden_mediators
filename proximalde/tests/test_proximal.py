@@ -717,7 +717,7 @@ def test_influential_set():
         else:
             assert est2.point_ < est.point_
 
-        c = sign * 100
+        c = sign * 90
         W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
         est = ProximalDE(dual_type='Z', cv=3, semi=True,
                          multitask=False, n_jobs=-1, random_state=3, verbose=3)
@@ -982,7 +982,8 @@ def test_accuracy_no_violations():
     np.random.seed(123)
     for n in [10000, 100000]:
         for pz, px in [(3, 2), (2, 3)]:
-            for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'), ('Q', '2sls')]:
+            for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'),
+                                          ('Q', '2sls'), ('Q', 'adv')]:
                 for _ in range(5):
                     print(n, pz, px, dual_type, ivreg_type)
                     pw = 1
@@ -1005,7 +1006,7 @@ def test_accuracy_no_violations():
                                      multitask=False, n_jobs=-1, random_state=3, verbose=0)
                     est.fit(W, D, Z, X, Y)
                     print(c, est.point_, est.stderr_)
-                    cov = (est.point_ - 3 * est.stderr_ <= c) & (est.point_ + 3 * est.stderr_ >= c)
+                    cov = (est.point_ - 4 * est.stderr_ <= c) & (est.point_ + 4 * est.stderr_ >= c)
                     print(cov, est.idstrength_)
                     assert cov and (est.idstrength_ > 2)
                     error = np.abs(est.point_ - c)

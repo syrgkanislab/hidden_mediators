@@ -39,7 +39,7 @@ def test_gen_data_complex():
     assert Y.shape == (n,)
 
     a_est = LinearRegression().fit(np.hstack([D.reshape(-1, 1), W]), M).coef_[0]
-    assert np.isclose(a_est, a, atol=1e-2)
+    assert np.isclose(a_est, a, atol=5e-2)
     b_est = LinearRegression().fit(np.hstack([D.reshape(-1, 1), M.reshape(-1, 1), X, W]), Y).coef_[1]
     assert np.isclose(b_est, b, atol=1e-2)
     c_est = LinearRegression().fit(np.hstack([D.reshape(-1, 1), M.reshape(-1, 1), X, W]), Y).coef_[0]

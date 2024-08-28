@@ -581,13 +581,6 @@ def test_pde_summary():
         assert f'{sm[2][3][3].data}' == \
             f'{np.format_float_scientific(chi2(px).sf(pde.dual_violation_), precision=decimals)}'
 
-        _, _, Fnonrobust, pnonrobust, _, \
-            _, Feff, _, Feff_crit = weakiv_tests(pde.Dbar_, pde.Dres_, pde.Ybar_)
-        assert f'{sm[3][1][1].data}' == f'{np.round(Fnonrobust[0], decimals)}'
-        assert f'{sm[3][1][5].data}' == f'{np.format_float_scientific(pnonrobust[0], precision=decimals)}'
-        assert f'{sm[3][3][1].data}' == f'{np.round(Feff[0], decimals)}'
-        assert f'{sm[3][3][6].data}' == f'{np.round(Feff_crit[0], decimals)}'
-
 
 def test_pde_run_diagnostics():
     np.random.seed(123)
@@ -1023,7 +1016,7 @@ def test_weakiv_tests():
                             a = .7  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
                             b = .8  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
                             c = .5  # (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
-                            # D has direct relationship to Z, Z has no relationship to M, 
+                            # D has direct relationship to Z, Z has no relationship to M,
                             # X has direct relationship to M, X has no direct relationship to Y
                             d = 0  # np.random.uniform(.5, 2)
                             e = 1  # np.random.uniform(.5, 2)

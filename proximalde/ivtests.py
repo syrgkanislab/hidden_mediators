@@ -63,7 +63,7 @@ def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
         These definitions assume that the instruments are mean-zero and identity
         covariance. Hence a PCA transformation is applied to the original instruments
         before calculating these statistics. It roughly corresponds to the quantity:
-            pi.T @ Cov(pi)^{-1} @ pi / (ninstruments * nobs)
+            pi.T @ Cov(pi)^{-1} @ pi / ninstruments
         where pi is an estimate of the first stage regression and Cov(pi) is a
         heteroskedasticity robust estimate of the asymptotic covariance matrix of
         the estimate pi, i.e. sqrt{n} (pi - pi0) -> N(0, Cov(pi)).
@@ -77,7 +77,7 @@ def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
         See e.g.:
         https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
         This statistic roughly corresponds to:
-            pi.T @ pi / (ninstruments * nobs * trace(Cov(pi)))
+            pi.T @ pi / trace(Cov(pi))
         So instead of using the inverse of the covariance matrix, we only
         keep the diagonal.
     Keff : array (n_endogenous - len(n_controls))

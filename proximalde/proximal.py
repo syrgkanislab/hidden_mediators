@@ -108,47 +108,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
     DXres = np.column_stack([Dres, Xres])
     alphas = np.logspace(0, 3, 10) * nobs**(0.1)
     if ivreg_type == '2sls':
-        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                      alphas=alphas),
-                                model_first=Ridge(fit_intercept=False),
-                                model_final=RidgeCV(fit_intercept=False,
-                                                    alphas=alphas),
-                                cv=cv,
-                                n_jobs=n_jobs,
-                                verbose=verbose,
-                                random_state=random_state)
-    elif ivreg_type == 'adv':
-        ivreg = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
-    else:
-        raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
-
-    # calculate out-of-sample moment violation
-    primal_moments = np.zeros(DZres.shape)
-    for train, test in splits:
-        ivreg_train = clone(ivreg).fit(DZres[train], DXres[train], Yres[train])
-        primal_moments[test] = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
-    primal_violation = np.mean(primal_moments, axis=0)
-    primal_violation_cov = primal_moments.T @ primal_moments / nobs
-    primal_violation_stat = nobs * primal_violation.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation
-
-    # train on all the data to get coefficient eta
-    ivreg.fit(DZres, DXres, Yres)
-    eta = ivreg.coef_[1:].reshape(-1, 1)
-    point_pre = ivreg.coef_[0]
-    std_pre = ivreg.stderr_[0]
-
-    # ``outcome'' for the final stage Neyman orthogonal moment
-    Ybar = Yres - Xres @ eta
-
-    if dual_type == 'Q':
-        dualIV = ivreg.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
-        ivreg = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
-    elif dual_type == 'Z':
-        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
-        dualIV = Zres
-        if ivreg_type == '2sls':
-            ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+        ivreg_eta = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
                                                           alphas=alphas),
                                     model_first=Ridge(fit_intercept=False),
                                     model_final=RidgeCV(fit_intercept=False,
@@ -157,8 +117,48 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
                                     n_jobs=n_jobs,
                                     verbose=verbose,
                                     random_state=random_state)
+    elif ivreg_type == 'adv':
+        ivreg_eta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+    else:
+        raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
+
+    # calculate out-of-sample moment violation
+    primal_moments = np.zeros(DZres.shape)
+    for train, test in splits:
+        ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
+        primal_moments[test] = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
+    primal_violation = np.mean(primal_moments, axis=0)
+    primal_violation_cov = primal_moments.T @ primal_moments / nobs
+    primal_violation_stat = nobs * primal_violation.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation
+
+    # train on all the data to get coefficient eta
+    ivreg_eta.fit(DZres, DXres, Yres)
+    eta = ivreg_eta.coef_[1:].reshape(-1, 1)
+    point_pre = ivreg_eta.coef_[0]
+    std_pre = ivreg_eta.stderr_[0]
+
+    # ``outcome'' for the final stage Neyman orthogonal moment
+    Ybar = Yres - Xres @ eta
+
+    if dual_type == 'Q':
+        dualIV = ivreg_eta.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
+        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
+        ivreg_gamma = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
+    elif dual_type == 'Z':
+        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
+        dualIV = Zres
+        if ivreg_type == '2sls':
+            ivreg_gamma = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
+                                                                alphas=alphas),
+                                          model_first=Ridge(fit_intercept=False),
+                                          model_final=RidgeCV(fit_intercept=False,
+                                                              alphas=alphas),
+                                          cv=cv,
+                                          n_jobs=n_jobs,
+                                          verbose=verbose,
+                                          random_state=random_state)
         elif ivreg_type == 'adv':
-            ivreg = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+            ivreg_gamma = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
         else:
             raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
     else:
@@ -167,7 +167,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
     # calculate out-of-sample dual moment violation
     Dbar = np.zeros(Dres.shape)
     for train, test in splits:
-        ivreg_train = clone(ivreg).fit(Xres[train], dualIV[train], Dres[train])
+        ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
         Dbar[test] = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
     dual_moments = Xres * Dbar
     dual_violation = np.mean(dual_moments, axis=0)
@@ -175,18 +175,19 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
     dual_violation_stat = nobs * dual_violation.T @ np.linalg.pinv(dual_violation_cov) @ dual_violation
 
     # train on all the data to get coefficient gamma
-    ivreg.fit(Xres, dualIV, Dres)
-    gamma = ivreg.coef_.reshape(-1, 1)
+    ivreg_gamma.fit(Xres, dualIV, Dres)
+    gamma = ivreg_gamma.coef_.reshape(-1, 1)
     # ``instrument'' for the final stage Neyman orthogonal moment
     Dbar = Dres - dualIV @ gamma
 
     # standardized strength of jacobian that goes into the denominator
     idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
-    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg.inf_
+    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg_gamma.inf_
     idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
-        primal_violation_stat, dual_violation_stat, idstrength, idstrength_std
+        primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
+            ivreg_eta, ivreg_gamma, dualIV
 
 
 def estimate_final(Dbar, Dres, Ybar):
@@ -217,7 +218,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
     '''
     # estimate the nuisance coefficients that are required
     # for the orthogonal moment
-    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std = \
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std, _, _, _ = \
         estimate_nuisances(Dres, Zres, Xres, Yres,
                            dual_type=dual_type, ivreg_type=ivreg_type,
                            cv=cv, n_jobs=n_jobs,
@@ -368,7 +369,8 @@ class ProximalDE(BaseEstimator):
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0
-        Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, idstrength, idstrength_std = \
+        Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, \
+            idstrength, idstrength_std, ivreg_eta, ivreg_gamma, dualIV = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
                                dual_type=self.dual_type, ivreg_type=self.ivreg_type,
                                cv=self.cv, n_jobs=self.n_jobs,
@@ -417,6 +419,9 @@ class ProximalDE(BaseEstimator):
         self.stderr_ = std_debiased
         self.idstrength_ = idstrength
         self.idstrength_std_ = idstrength_std
+        self.ivreg_eta_ = ivreg_eta
+        self.ivreg_gamma_ = ivreg_gamma
+        self.dualIV_ = dualIV
         self.inf_ = inf
 
         return self
@@ -472,12 +477,33 @@ class ProximalDE(BaseEstimator):
                 ub = g if ub < g else ub
         return lb, ub
 
-    def summary(self, *, alpha=0.05, value=0, decimals=4):
+    def weakiv_test(self, *, alpha=0.05, tau=0.1):
+        ''' Simplification of the effective first stage F-test for the case
+        of only one instrument
+        '''
+        self._check_is_fitted()
+        pi = np.mean(self.Dres_ * self.Dbar_) / np.mean(self.Dbar_**2)
+        inf_pi = self.Dbar_ * (self.Dres_ - pi * self.Dbar_)
+        der = - np.mean(self.dualIV_ * (self.Dres_ - pi * self.Dbar_), axis=0)
+        der += pi * np.mean(self.Dbar_ * self.dualIV_, axis=0)
+        inf_pi += self.ivreg_gamma_.inf_ @ der.reshape(-1, 1)
+        inf_pi = np.mean(self.Dbar_**2)**(-1) * inf_pi
+        pi = np.mean(inf_pi) + pi  # debiasing point estimate
+        cov_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
+        # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
+        # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]
+
+        return pi**2 / cov_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
+
+    def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
         '''
         Parameters
         ----------
         alpha : float in (0, 1), optional (default=0.05)
             Confidence level of the interval
+        tau : float in (0, 1), optional (default=0.05)
+            Target Nagar bias level that is used in calculating the critical value
+            for the weak IV test
         value : float, optional (default=0)
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
@@ -514,32 +540,21 @@ class ProximalDE(BaseEstimator):
         dviolation_pval = np.format_float_scientific(dviolation_pval,
                                                      precision=decimals)
         dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
-        res = np.array([[strength, pviolation, dviolation],
-                        [strength_dist, pviolation_dist, dviolation_dist],
-                        [strength_pval, pviolation_pval, dviolation_pval],
-                        [strength_crit, pviolation_crit, dviolation_crit],
-                        ['statistic > critical', 'statistic < critical', 'statistic < critical']]).T
+        weakiv_stat, weakiv_crit = self.weakiv_test(alpha=alpha, tau=tau)
+        weakiv_stat = np.round(weakiv_stat, decimals)
+        weakiv_crit = np.round(weakiv_crit, decimals)
+        weakiv_pval = 'N/A'
+        weakiv_dist = f'chi2nc(df=1, nc={np.round(1/tau, decimals)})'
+        res = np.array([[strength, pviolation, dviolation, weakiv_stat],
+                        [strength_dist, pviolation_dist, dviolation_dist, weakiv_dist],
+                        [strength_pval, pviolation_pval, dviolation_pval, weakiv_pval],
+                        [strength_crit, pviolation_crit, dviolation_crit, weakiv_crit],
+                        ['statistic > critical', 'statistic < critical',
+                         'statistic < critical', 'statistic > critical']]).T
         headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal']
-        index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3']
+        index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3', 'weakIV_Ftest^4']
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
-
-        # weak IV first stage F-tests
-        weak_res = weakiv_tests(self.Dbar_, self.Dres_, self.Ybar_)
-        ftest_df1, ftest_df2, Fnonrobust, pnonrobust, Frobust, probust, Feff, Keff, Feff_crit = weak_res
-        res = np.array([[np.round(Fnonrobust[0], decimals),
-                         np.round(Frobust[0], decimals),
-                         np.round(Feff[0], decimals)],
-                        [ftest_df1, ftest_df1, 'N/A'],
-                        [ftest_df2, ftest_df2, 'N/A'],
-                        ['N/A', 'N/A', np.round(Keff[0], decimals)],
-                        [np.format_float_scientific(pnonrobust[0], precision=decimals),
-                         np.format_float_scientific(probust[0], precision=decimals),
-                         'N/A'],
-                        ['~10', '~10', np.round(Feff_crit[0], decimals)]]).T
-        headers = ['statistic', 'df1', 'df2', 'Keff', 'p-value', 'critical-value']
-        index = ['F-nonrobust', 'F-robust', 'F-effective']
-        sm.tables.append(SimpleTable(res, headers, index, "Weak IV tests^4"))
 
         sm.add_extra_txt([
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
@@ -549,6 +564,9 @@ class ProximalDE(BaseEstimator):
             'A small statistic implies that the effect is weakly identified because '
             'the instrument V is too weakly correlated with the treatment.',
             'This can be caused if the mediator is very predictable from the treatment.',
+            'The std of this strength accounts for the estimation error of the parameter $\\gamma$, but when `dual_type=Q` '
+            'it does not account for the estimation error of the projection matrix that goes into Q. '
+            'So in that case the std can potentially be artificially small.',
             '2. Maximum violation of primal moments $n E_n[e U]^\\top E_n[e^2 U U^\\top]^{-1} E_n[e U]$.',
             'Under the null it follows approximately a chi2(dim(z) + 1) distribution',
             'A large primal violation is a test that can reject '
@@ -562,8 +580,13 @@ class ProximalDE(BaseEstimator):
             'and implies weak identification. ',
             'For instance, large violation can occur if Z is weakly correlated with the mediator, '
             'while X and D are correlated with the mediator.',
-            '4. These are weak IV tests with $V$ as the instrument, $\\tilde{D}$ as the treatment '
-            'and $\\tilde{Y} - \\tilde{X}^\\top \\eta$ as the outcome.'])
+            '4. Weak IV test with $V$ as the instrument, $\\tilde{D}$ as the treatment '
+            'and $\\tilde{Y} - \\tilde{X}^\\top \\eta$ as the outcome. ',
+            'It estimates the coefficient $\\hat{\\pi}$ of the first stage regression of $\\tilde{D}$ on $V$ '
+            'and uses an estimate of the statistic $\\hat{\\pi}^2 / Var(\\hat{\\pi})$',
+            'The test accounts for the estimation error of the parameter $\\gamma$, but when `dual_type=Q` '
+            'it does not account for the estimation error of the projection matrix that goes into Q. '
+            'So in that case the test can potentially be artificially large.'])
 
         return sm
 

@@ -12,7 +12,6 @@ from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
 from ..inference import NormalInferenceResults
-from ..ivtests import weakiv_tests
 
 
 def test_residualize_w_shapes_and_accuracy():

@@ -10,7 +10,6 @@ import scipy.stats
 from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
-from .ivtests import weakiv_tests
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input
 
@@ -187,7 +186,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
-            ivreg_eta, ivreg_gamma, dualIV
+        ivreg_eta, ivreg_gamma, dualIV
 
 
 def estimate_final(Dbar, Dres, Ybar):
@@ -564,8 +563,9 @@ class ProximalDE(BaseEstimator):
             'A small statistic implies that the effect is weakly identified because '
             'the instrument V is too weakly correlated with the treatment.',
             'This can be caused if the mediator is very predictable from the treatment.',
-            'The std of this strength accounts for the estimation error of the parameter $\\gamma$, but when `dual_type=Q` '
-            'it does not account for the estimation error of the projection matrix that goes into Q. '
+            'The std of this strength accounts for the estimation error of the parameter $\\gamma$, '
+            'but when `dual_type=Q` it does not account for the estimation error of the projection '
+            'matrix that goes into Q. '
             'So in that case the std can potentially be artificially small.',
             '2. Maximum violation of primal moments $n E_n[e U]^\\top E_n[e^2 U U^\\top]^{-1} E_n[e U]$.',
             'Under the null it follows approximately a chi2(dim(z) + 1) distribution',

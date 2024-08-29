@@ -476,7 +476,7 @@ class ProximalDE(BaseEstimator):
                 ub = g if ub < g else ub
         return lb, ub
 
-    def weakiv_test(self, *, alpha=0.05, tau=0.1):
+    def weakiv_test(self, *, alpha=0.05, tau=0.1, return_pi_and_var=False):
         ''' Simplification of the effective first stage F-test for the case
         of only one instrument. See ivtests.py for more information on these
         tests. See also here:
@@ -490,11 +490,14 @@ class ProximalDE(BaseEstimator):
         inf_pi += self.ivreg_gamma_.inf_ @ der.reshape(-1, 1)
         inf_pi = np.mean(self.Dbar_**2)**(-1) * inf_pi
         pi = np.mean(inf_pi) + pi  # debiasing point estimate
-        cov_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
+        var_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
         # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
         # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]
 
-        return pi**2 / cov_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
+        if return_pi_and_var:
+            return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau), pi, var_pi
+        else:
+            return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
 
     def covariance_rank_test(self):
         ''' Singular values of covariance matrix of Xres with Zres.
@@ -584,9 +587,7 @@ class ProximalDE(BaseEstimator):
             'So in that case the std can potentially be artificially small.',
             '2. Maximum violation of primal moments $n E_n[e U]^\\top E_n[e^2 U U^\\top]^{-1} E_n[e U]$.',
             'Under the null it follows approximately a chi2(dim(z) + 1) distribution',
-            'A large primal violation is a test that can reject '
-            'the linear specification of the outcome bridge function',
-            'For instance, large violation can occur if X is weakly correlated with the mediator, '
+            'A large violation can occur if X is weakly correlated with the mediator, '
             'but D and Z are correlated with the mediator.',
             '3. Maximum violation of dual moments '
             '$n E_n[V \\tilde{X}]^\\top E_n[V^2 \\tilde{X}\\tilde{X}^\\top]^{-1} E_n[V \\tilde{X}]$ ',

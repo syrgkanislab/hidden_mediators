@@ -12,6 +12,7 @@ from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
 from ..inference import NormalInferenceResults
+from joblib import Parallel, delayed
 
 
 def test_residualize_w_shapes_and_accuracy():
@@ -1051,3 +1052,63 @@ def test_weakiv_tests():
                                 assert weakiv_stat < weakiv_crit
                             if sm >= 0.2:
                                 assert weakiv_stat > weakiv_crit
+
+
+def true_params(pw, pz, px, a, b, c, d, e, f, g, sm, sz=1.0, sd=0.5):
+    '''true parameters for gamma and strenght for 1d Z and X'''
+    if pz == 1 and px == 1:
+        true_Zsq = (e * a + d)**2 * sd**2 + e**2 * sm**2 + sz**2
+        true_Msq = sm**2 + a**2 * sd**2
+        true_XZ = f * (e * true_Msq + d * a * sd**2)
+        true_DZ = (a * e + d) * sd**2
+        true_DX = a * f * sd**2
+        # D*X / X*Z
+        true_gamma = true_DX / true_XZ
+        # D^2 - gamma D * Z
+        true_strength = sd**2 - true_gamma * true_DZ
+        return true_gamma, true_strength
+    else:
+        raise AttributeError("Not available")
+
+
+def exp_summary(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
+    np.random.seed(it)
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm)
+    est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                     multitask=False, n_jobs=1, random_state=3, verbose=0)
+    est.fit(W, D, Z, X, Y)
+    lb, ub = est.robust_conf_int(lb=-2, ub=2)
+    weakiv_stat, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
+    maxeig = est.covariance_rank_test()[0]
+    return est.stderr_, est.idstrength_, est.primal_violation_, est.dual_violation_, est.point_, lb, ub, weakiv_stat, maxeig, pi, var_pi
+
+
+def test_pi_and_var_pi():
+    np.random.seed(123)
+    n = 10000
+    pw = 1
+    pz, px = 1, 1
+    # Indirect effect is a*b, direct effect is c
+    a, b, c = 1.0, 1.0, .5
+    d, e, f, g = 1.0, 1.0, 1.0, 1.0
+    sm = 2.0
+    res = np.array(Parallel(n_jobs=-1, verbose=3)(delayed(exp_summary)(it, n, pw, pz, px, a, b, c, d, e, f, g, sm)
+                                                  for it in range(100)))
+
+    pi = res[:, 9]
+    var_pi = n * res[:, 10]
+    true_gamma, _ = true_params(pw, pz, px, a, b, c, d, e, f, g, sm)
+    W, D, _, Z, X, Y = gen_data_no_controls(100000, pw, pz, px, a, b, c, d, e, f, g, sm=sm)
+    D = D.reshape(-1, 1)
+    D = D - D.mean(axis=0)
+    X = X - X.mean(axis=0)
+    Z = Z - Z.mean(axis=0)
+    true_pi = LinearRegression(fit_intercept=False).fit(D - true_gamma * Z, D.flatten()).coef_[0]
+    print(np.mean(pi), true_pi)
+    assert np.allclose(np.mean(pi), true_pi, atol=5e-3)
+    print(n * np.var(pi), np.mean(var_pi))
+    assert np.allclose(n * np.var(pi), np.mean(var_pi), atol=5e-3)
+    print(n * np.var(pi), np.percentile(var_pi, 1))
+    assert np.allclose(n * np.var(pi), np.percentile(var_pi, 1), atol=5e-3)
+    print(n * np.var(pi), np.percentile(var_pi, 99))
+    assert np.allclose(n * np.var(pi), np.percentile(var_pi, 99), atol=5e-3)

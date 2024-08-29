@@ -478,7 +478,9 @@ class ProximalDE(BaseEstimator):
 
     def weakiv_test(self, *, alpha=0.05, tau=0.1):
         ''' Simplification of the effective first stage F-test for the case
-        of only one instrument
+        of only one instrument. See ivtests.py for more information on these
+        tests. See also here:
+        https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
         '''
         self._check_is_fitted()
         pi = np.mean(self.Dres_ * self.Dbar_) / np.mean(self.Dbar_**2)

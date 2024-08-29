@@ -494,6 +494,15 @@ class ProximalDE(BaseEstimator):
 
         return pi**2 / cov_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
 
+    def covariance_rank_test(self):
+        ''' Singular values of covariance matrix of Xres with Zres.
+        If these are all small or there aren't many large, then this is
+        a signal of weak proxies. Also the number of non-zero singular
+        values, is roughly a bound on the dimensionality of the hidden mediator.
+        '''
+        _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
+        return S
+
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
         '''
         Parameters
@@ -555,7 +564,11 @@ class ProximalDE(BaseEstimator):
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
 
+        S = self.covariance_rank_test()
+        topk = np.min([5, self.px_, self.pz_])
         sm.add_extra_txt([
+            f'top-{topk}-singular values of Cov(X, Z): [' + ', '.join([str(np.round(S[i], decimals))
+                                                                      for i in range(topk)]) + ']',
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
             'and tilde denoting residual after removing the part predictable from $W$.',

@@ -489,7 +489,7 @@ class ProximalDE(BaseEstimator):
         der += pi * np.mean(self.Dbar_ * self.dualIV_, axis=0)
         inf_pi += self.ivreg_gamma_.inf_ @ der.reshape(-1, 1)
         inf_pi = np.mean(self.Dbar_**2)**(-1) * inf_pi
-        pi = np.mean(inf_pi) + pi  # debiasing point estimate
+        # pi = np.mean(inf_pi) + pi  # debiasing point estimate
         var_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
         # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
         # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]

@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.linalg
 from sklearn.base import clone, BaseEstimator
 from sklearn.model_selection import check_cv
 from .crossfit import fit_predict
@@ -123,7 +124,7 @@ class Regularized2SLS(BaseEstimator):
             Qc, Dc, Yc = Q, D, Y
 
         J = Qc.T @ Qc / Qc.shape[0] + np.eye(Qc.shape[1]) * (alpha / Qc.shape[0])
-        Jinv = np.linalg.pinv(J)
+        Jinv = scipy.linalg.pinvh(J)
         epsilon = (Yc - Dc @ self.coef_).reshape(-1, 1) * Qc
         inf = epsilon @ Jinv.T
         Cov = inf.T @ inf / inf.shape[0]
@@ -188,7 +189,7 @@ class RegularizedDualIVSolver(BaseEstimator):
                 ntrain = len(train)
                 JD = Q[train].T @ Q[train] / Q[train].shape[0]
                 JD += np.eye(Q[train].shape[1]) * (alpha / ntrain)
-                JDinv = np.linalg.pinv(JD)
+                JDinv = scipy.linalg.pinvh(JD)
                 coef = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
                 Dbar[test] = D[test] - Q[test] @ coef
             violation = np.linalg.norm(np.mean(Dbar * X, axis=0), ord=np.inf)
@@ -198,7 +199,7 @@ class RegularizedDualIVSolver(BaseEstimator):
 
         # Calculate coef using the best penalty choice
         JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])
-        JDinv = np.linalg.pinv(JD)
+        JDinv = scipy.linalg.pinvh(JD)
         coef = JDinv @ (X.T @ D / X.shape[0])
         inf = X * (D - Q @ coef).reshape(-1, 1)
         inf = inf @ JDinv.T
@@ -214,12 +215,12 @@ class RegularizedDualIVSolver(BaseEstimator):
 def advIV(Z, X, Y, alpha):
     n = Z.shape[0]
     XZ = X.T @ Z / n
-    ZZinv = np.linalg.pinv(Z.T @ Z / n)
+    ZZinv = scipy.linalg.pinvh(Z.T @ Z / n)
     Q = Z @ ZZinv @ XZ.T
     XX = X.T @ X / n
     QY = Q.T @ Y / n
     XQ = X.T @ Q / n
-    Jinv = np.linalg.pinv(XQ + (alpha / n) * XX)
+    Jinv = scipy.linalg.pinvh(XQ + (alpha / n) * XX)
     coef = Jinv @ QY
     inf = Q * Y - (Q + (alpha / n) * X) * (X @ coef)
     inf = inf @ Jinv.T

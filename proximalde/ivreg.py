@@ -181,21 +181,24 @@ class RegularizedDualIVSolver(BaseEstimator):
             self.cv_.random_state = self.random_state
         splits = list(self.cv_.split(Q, D))
 
-        alpha_best = 0
-        best_violation = np.inf
-        for alpha in self.alphas:
-            Dbar = np.zeros(D.shape)
-            for train, test in splits:
-                ntrain = len(train)
-                JD = Q[train].T @ Q[train] / Q[train].shape[0]
-                JD += np.eye(Q[train].shape[1]) * (alpha / ntrain)
-                JDinv = scipy.linalg.pinvh(JD)
-                coef = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
-                Dbar[test] = D[test] - Q[test] @ coef
-            violation = np.linalg.norm(np.mean(Dbar * X, axis=0), ord=np.inf)
-            if violation < best_violation:
-                best_violation = violation
-                alpha_best = alpha
+        if len(self.alphas) > 1:
+            alpha_best = 0
+            best_violation = np.inf
+            for alpha in self.alphas:
+                Dbar = np.zeros(D.shape)
+                for train, test in splits:
+                    ntrain = len(train)
+                    JD = Q[train].T @ Q[train] / Q[train].shape[0]
+                    JD += np.eye(Q[train].shape[1]) * (alpha / ntrain)
+                    JDinv = scipy.linalg.pinvh(JD)
+                    coef = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
+                    Dbar[test] = D[test] - Q[test] @ coef
+                violation = np.linalg.norm(np.mean(Dbar * X, axis=0), ord=np.inf)
+                if violation < best_violation:
+                    best_violation = violation
+                    alpha_best = alpha
+        else:
+            alpha_best = alpha
 
         # Calculate coef using the best penalty choice
         JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])
@@ -262,16 +265,19 @@ class AdvIV(BaseEstimator):
             self.cv_.random_state = self.random_state
         splits = list(self.cv_.split(Z, Y))
 
-        mval_best = np.inf
-        for alpha in self.alphas:
-            moment = np.zeros(Z.shape)
-            for train, test in splits:
-                coef, _, _ = advIV(Z[train], X[train], Y[train], alpha)
-                moment[test] = (Y[test] - X[test] @ coef) * Z[test]
-            mval = np.linalg.norm(np.mean(moment, axis=0), ord=2)
-            if mval < mval_best:
-                mval_best = mval
-                alpha_best = alpha
+        if len(self.alphas) > 1:
+            mval_best = np.inf
+            for alpha in self.alphas:
+                moment = np.zeros(Z.shape)
+                for train, test in splits:
+                    coef, _, _ = advIV(Z[train], X[train], Y[train], alpha)
+                    moment[test] = (Y[test] - X[test] @ coef) * Z[test]
+                mval = np.linalg.norm(np.mean(moment, axis=0), ord=2)
+                if mval < mval_best:
+                    mval_best = mval
+                    alpha_best = alpha
+        else:
+            alpha_best = self.alphas[0]
 
         coef, Q, inf = advIV(Z, X, Y, alpha_best)
         cov = (inf.T @ inf / nobs)

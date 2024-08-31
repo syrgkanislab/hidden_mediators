@@ -27,38 +27,44 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     if Y.shape[1] > 1:
         raise AttributeError("Y should be a scalar outcome")
 
-    #####
-    # Residualizing W out of D, Z, X, Y, using cross-fitting
-    # (or semi-cross-fitting) and a Lasso model with regularization
-    # chosen via cross-validation
-    #####
-
-    cv = check_cv(cv, y=D, classifier=categorical)
-    if hasattr(cv, 'shuffle'):
-        cv.shuffle = True
-    if hasattr(cv, 'random_state'):
-        cv.random_state = random_state
-
-    if multitask:
-        model = MultiTaskLasso(random_state=random_state)
-        modelcv = MultiTaskLassoCV(random_state=random_state)
+    if W is None:
+        Dres = D - D.mean(axis=0, keepdims=True)
+        Zres = Z - Z.mean(axis=0, keepdims=True)
+        Xres = X - X.mean(axis=0, keepdims=True)
+        Yres = Y - Y.mean(axis=0, keepdims=True)
+        splits = None
     else:
-        model = Lasso(random_state=random_state)
-        modelcv = LassoCV(random_state=random_state)
+        #####
+        # Residualizing W out of D, Z, X, Y, using cross-fitting
+        # (or semi-cross-fitting) and a Lasso model with regularization
+        # chosen via cross-validation
+        #####
+        cv = check_cv(cv, y=D, classifier=categorical)
+        if hasattr(cv, 'shuffle'):
+            cv.shuffle = True
+        if hasattr(cv, 'random_state'):
+            cv.random_state = random_state
 
-    splits = list(cv.split(W, D))
-    print("Residualizing D...") if verbose > 0 else None
-    Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
-                           n_jobs, verbose)
-    print("Residualizing Z...") if verbose > 0 else None
-    Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
-                           n_jobs, verbose)
-    print("Residualizing X...") if verbose > 0 else None
-    Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
-                           n_jobs, verbose)
-    print("Residualizing Y...") if verbose > 0 else None
-    Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
-                           n_jobs, verbose)
+        if multitask:
+            model = MultiTaskLasso(random_state=random_state)
+            modelcv = MultiTaskLassoCV(random_state=random_state)
+        else:
+            model = Lasso(random_state=random_state)
+            modelcv = LassoCV(random_state=random_state)
+
+        splits = list(cv.split(W, D))
+        print("Residualizing D...") if verbose > 0 else None
+        Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose)
+        print("Residualizing Z...") if verbose > 0 else None
+        Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose)
+        print("Residualizing X...") if verbose > 0 else None
+        Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose)
+        print("Residualizing Y...") if verbose > 0 else None
+        Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose)
 
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)
@@ -105,7 +111,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
-    alphas = np.logspace(0, 1, 1) * nobs**(0.4)
+    alphas = np.logspace(0, 1, 1) * nobs**(0.3)
     if ivreg_type == '2sls':
         ivreg_eta = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
                                                           alphas=alphas),
@@ -142,10 +148,10 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     if dual_type == 'Q':
         dualIV = ivreg_eta.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = np.logspace(0, 1, 1) * nobs**(0.4)
+        alphas = np.logspace(0, 1, 1) * nobs**(0.3)
         ivreg_gamma = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
     elif dual_type == 'Z':
-        alphas = np.logspace(0, 1, 1) * nobs**(0.4)
+        alphas = np.logspace(0, 1, 1) * nobs**(0.3)
         dualIV = Zres
         if ivreg_type == '2sls':
             ivreg_gamma = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
@@ -183,7 +189,9 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     # standardized strength of jacobian that goes into the denominator
     idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
-    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar) - np.mean(Dres * dualIV) * ivreg_gamma.inf_
+    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar)
+    der = np.mean(Dres * dualIV, axis=0)
+    inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
     idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
@@ -332,8 +340,9 @@ class ProximalDE(BaseEstimator):
 
         Parameters
         ----------
-        W : array (n, pw)
-            Controls
+        W : array (n, pw) or None
+            Controls. If None is passed then the rest of the variables are
+            simply de-meaned and no residual models are fitted.
         D : array (n, 1) or (n,)
             Treatment
         Z : array (n, pz) or (n,)
@@ -385,7 +394,7 @@ class ProximalDE(BaseEstimator):
         # Storing fitted parameters and training data as
         # properties of the class
         self.nobs_ = D.shape[0]
-        self.pw_ = W.shape[1]
+        self.pw_ = W.shape[1] if W is not None else 0
         self.pz_ = Z.shape[1]
         self.px_ = X.shape[1]
         self.dual_type_ = self.dual_type
@@ -541,9 +550,11 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength = np.round(self.idstrength_, decimals)
-        strength_dist = f'N(0, s={np.round(self.idstrength_std_, decimals)})'
-        strength_pval = 'N/A'
-        strength_crit = '~ 1'  # np.round(scipy.stats.chi2(1).ppf(1 - alpha), decimals)
+        strength_dist = f'|N(0, s={np.round(self.idstrength_std_, decimals)})|'
+        strength_pval = scipy.stats.foldnorm(c=0, scale=self.idstrength_std_).sf(self.idstrength_)
+        strength_pval = np.format_float_scientific(strength_pval,
+                                                   precision=decimals)
+        strength_crit = np.round(scipy.stats.foldnorm(c=0, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
         pviolation = np.round(self.primal_violation_, decimals)
         pviolation_dist = f'chi2(df={self.pz_ + 1})'
         pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
@@ -777,6 +788,10 @@ class ProximalDE(BaseEstimator):
                              verbose=0,
                              random_state=None):
         self._check_is_fitted()
+
+        if self.W_ is None:
+            raise AttributeError("No first stage was fitted because `W=None`.")
+
         subsamples = _gen_subsamples(self.nobs_, n_subsamples,
                                      fraction, replace, random_state)
         results = Parallel(n_jobs=n_jobs, verbose=verbose)(

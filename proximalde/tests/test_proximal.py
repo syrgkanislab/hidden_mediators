@@ -171,7 +171,7 @@ def test_estimate_nuisances():
                                                                          cv=2, n_jobs=-1, verbose=0,
                                                                          random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
-        alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
+        alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
         ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                                 model_first=Ridge(fit_intercept=False),
                                 model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -192,7 +192,7 @@ def test_estimate_nuisances():
                                                                      cv=2, n_jobs=-1, verbose=0,
                                                                      random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
-    alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
+    alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -212,7 +212,7 @@ def test_estimate_nuisances():
                                                                         cv=5, n_jobs=-1, verbose=0,
                                                                         random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
-    alphas = np.logspace(0, 3, 10) * Z.shape[0]**(0.1)
+    alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -355,15 +355,20 @@ def test_proximal_de_equivalency():
     np.random.seed(123)
     Z, X, Y, _ = gen_iv_data(10000, 3, 3, 1, .5)
     W = np.random.normal(0, 1, size=(10000, 2))
-    point, std, *_ = proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
-                                            cv=5, n_jobs=-1, verbose=0, random_state=None)
-
     ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
                             model_first=None,
                             model_final=LinearRegression(fit_intercept=False),
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
                             random_state=123).fit(Z, X, Y)
+    
+    point, std, *_ = proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
+                                            cv=5, n_jobs=-1, verbose=0, random_state=None)
+    assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
+    assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
+
+    point, std, *_ = proximal_direct_effect(None, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z',
+                                            cv=5, n_jobs=-1, verbose=0, random_state=None)
     assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
     assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
 
@@ -970,7 +975,7 @@ def test_accuracy_no_violations():
     '''
     np.random.seed(123)
     for n in [10000, 100000]:
-        for pz, px in [(3, 2), (2, 3)]:
+        for pz, px, pass_w in [(3, 2, True), (2, 3, False)]:
             for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'),
                                           ('Q', '2sls'), ('Q', 'adv')]:
                 for _ in range(5):
@@ -993,7 +998,10 @@ def test_accuracy_no_violations():
 
                     est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
                                      multitask=False, n_jobs=-1, random_state=3, verbose=0)
-                    est.fit(W, D, Z, X, Y)
+                    if pass_w:
+                        est.fit(W, D, Z, X, Y)
+                    else:
+                        est.fit(None, D, Z, X, Y)
                     print(c, est.point_, est.stderr_)
                     cov = (est.point_ - 4 * est.stderr_ <= c) & (est.point_ + 4 * est.stderr_ >= c)
                     print(cov, est.idstrength_)

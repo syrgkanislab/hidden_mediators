@@ -550,11 +550,11 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength = np.round(self.idstrength_, decimals)
-        strength_dist = f'|N(0, s={np.round(self.idstrength_std_, decimals)})|'
-        strength_pval = scipy.stats.foldnorm(c=0, scale=self.idstrength_std_).sf(self.idstrength_)
+        strength_dist = f'|N(10, s={np.round(self.idstrength_std_, decimals)})|'
+        strength_pval = scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).sf(self.idstrength_)
         strength_pval = np.format_float_scientific(strength_pval,
                                                    precision=decimals)
-        strength_crit = np.round(scipy.stats.foldnorm(c=0, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
+        strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
         pviolation = np.round(self.primal_violation_, decimals)
         pviolation_dist = f'chi2(df={self.pz_ + 1})'
         pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)

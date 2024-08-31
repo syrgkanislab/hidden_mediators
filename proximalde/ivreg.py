@@ -198,7 +198,7 @@ class RegularizedDualIVSolver(BaseEstimator):
                     best_violation = violation
                     alpha_best = alpha
         else:
-            alpha_best = alpha
+            alpha_best = self.alphas[0]
 
         # Calculate coef using the best penalty choice
         JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])

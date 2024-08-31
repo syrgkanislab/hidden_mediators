@@ -105,7 +105,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
 
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
-    alphas = np.logspace(0, 3, 10) * nobs**(0.1)
+    alphas = np.logspace(0, 1, 1) * nobs**(0.4)
     if ivreg_type == '2sls':
         ivreg_eta = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
                                                           alphas=alphas),
@@ -127,7 +127,8 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
         ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
         primal_moments[test] = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
     primal_violation = np.mean(primal_moments, axis=0)
-    primal_violation_cov = primal_moments.T @ primal_moments / nobs
+    primal_moments_inf = primal_moments - primal_violation
+    primal_violation_cov = primal_moments_inf.T @ primal_moments_inf / nobs
     primal_violation_stat = nobs * primal_violation.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation
 
     # train on all the data to get coefficient eta
@@ -141,10 +142,10 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
 
     if dual_type == 'Q':
         dualIV = ivreg_eta.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
+        alphas = np.logspace(0, 1, 1) * nobs**(0.4)
         ivreg_gamma = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
     elif dual_type == 'Z':
-        alphas = np.logspace(0, 3, 10) * nobs**(0.1)
+        alphas = np.logspace(0, 1, 1) * nobs**(0.4)
         dualIV = Zres
         if ivreg_type == '2sls':
             ivreg_gamma = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
@@ -170,7 +171,8 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sl
         Dbar[test] = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
     dual_moments = Xres * Dbar
     dual_violation = np.mean(dual_moments, axis=0)
-    dual_violation_cov = dual_moments.T @ dual_moments / nobs
+    dual_moments_inf = dual_moments - dual_violation
+    dual_violation_cov = dual_moments_inf.T @ dual_moments_inf / nobs
     dual_violation_stat = nobs * dual_violation.T @ np.linalg.pinv(dual_violation_cov) @ dual_violation
 
     # train on all the data to get coefficient gamma
@@ -490,7 +492,7 @@ class ProximalDE(BaseEstimator):
         inf_pi += self.ivreg_gamma_.inf_ @ der.reshape(-1, 1)
         inf_pi = np.mean(self.Dbar_**2)**(-1) * inf_pi
         # removed this debiasing as it didn't seem to improve results empirical
-        # pi = np.mean(inf_pi) + pi  # debiasing point estimate
+        pi = np.mean(inf_pi) + pi  # debiasing point estimate
         var_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
         # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
         # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]

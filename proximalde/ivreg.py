@@ -222,7 +222,7 @@ def advIV(Z, X, Y, alpha):
     XQ = X.T @ Q / n
     Jinv = scipy.linalg.pinvh(XQ + (alpha / n) * XX)
     coef = Jinv @ QY
-    inf = Q * Y - (Q + (alpha / n) * X) * (X @ coef)
+    inf = Q * Y - Q * (X @ coef)
     inf = inf @ Jinv.T
     return coef, Q, inf
 

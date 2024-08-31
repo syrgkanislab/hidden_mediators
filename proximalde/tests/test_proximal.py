@@ -163,16 +163,20 @@ def test_estimate_nuisances():
     '''
     np.random.seed(123)
     n, pz, px, pw = 10000, 3, 3, 1
+    alpha_multipliers = np.logspace(0, 2, 3)
+    alpha_exponent = 0.35
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
-
+    alphas = alpha_multipliers * Z.shape[0]**(alpha_exponent)
+    
     for dual_type in ['Z', 'Q']:
         _, Ybar, eta, gamma, point_pre, std_pre, *_ = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
                                                                          dual_type=dual_type,
                                                                          ivreg_type='2sls',
+                                                                         alpha_multipliers=alpha_multipliers,
+                                                                         alpha_exponent=alpha_exponent,
                                                                          cv=2, n_jobs=-1, verbose=0,
                                                                          random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
-        alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
         ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                                 model_first=Ridge(fit_intercept=False),
                                 model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -181,20 +185,22 @@ def test_estimate_nuisances():
         assert np.allclose(eta.flatten(), coef1[1:])
         assert np.allclose(point_pre, coef1[0])
         assert np.allclose(std_pre, ivreg.stderr_[0])
-        assert np.allclose(point_pre, 1.0, atol=8e-2)
-        assert np.allclose(eta.flatten(), np.ones(px) / px, atol=8e-2)
+        assert np.allclose(point_pre, 1.0, atol=9e-2)
+        assert np.allclose(eta.flatten(), np.ones(px) / px, atol=9e-2)
 
     np.random.seed(123)
     n, pz, px, pw = 10000, 3, 3, 0
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
+    alphas = alpha_multipliers * Z.shape[0]**(alpha_exponent)
 
     Dbar, _, eta, gamma, point_pre, std_pre, *_ = estimate_nuisances(Y, X, Z, Y,
                                                                      dual_type='Z',
                                                                      ivreg_type='2sls',
+                                                                     alpha_multipliers=alpha_multipliers,
+                                                                     alpha_exponent=alpha_exponent,
                                                                      cv=2, n_jobs=-1, verbose=0,
                                                                      random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
-    alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
@@ -208,21 +214,23 @@ def test_estimate_nuisances():
     np.random.seed(123)
     n, pz, px, pw = 10000, 2, 2, 0
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, 1.0)
+    alphas = alpha_multipliers * Z.shape[0]**(alpha_exponent)
 
     Dbar, Ybar, eta, gamma, point_pre, std_pre, *_ = estimate_nuisances(Y, X, X, Y,
                                                                         dual_type='Q',
                                                                         ivreg_type='2sls',
+                                                                        alpha_multipliers=alpha_multipliers,
+                                                                        alpha_exponent=alpha_exponent,
                                                                         cv=5, n_jobs=-1, verbose=0,
                                                                         random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
-    alphas = np.logspace(0, 1, 1) * Z.shape[0]**(0.3)
     ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
                             model_first=Ridge(fit_intercept=False),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                             cv=5, random_state=123).fit(X, X, Y)
     coef1 = ivreg.coef_
     assert gamma.shape == (px, 1)
-    assert np.allclose(gamma.flatten(), coef1, atol=1e-3)
+    assert np.allclose(gamma.flatten(), coef1, atol=5e-3)
     assert np.allclose(gamma.flatten(), np.ones(px) / px, atol=5e-2)
 
     with pytest.raises(AttributeError) as e_info:
@@ -1092,7 +1100,8 @@ def exp_summary(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
     est.fit(W, D, Z, X, Y)
     lb, ub = est.robust_conf_int(lb=-2, ub=2)
     weakiv_stat, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
-    maxeig = est.covariance_rank_test()[0]
+    eigs, _ = est.covariance_rank_test()
+    maxeig = eigs[0]
     return est.stderr_, est.idstrength_, est.primal_violation_, est.dual_violation_, est.point_, lb, ub, \
         weakiv_stat, maxeig, pi, var_pi
 

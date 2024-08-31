@@ -78,6 +78,8 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
 
 
 def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
+                       alpha_multipliers=np.array([1.0]),
+                       alpha_exponent=0.3,
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -92,6 +94,12 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     If dual_type='Q', the moment E[(Dres - gamma'Q) X] is used as the
     dual, where Q is the projection of X on (D;Z).
+
+    The penalty weights in the regularized regressions are chosen via
+    cross-validation among the options of the form:
+        alpha_multipliers * nobs**(alpha_exponent)
+    If alpha_multipliers is a singleton list, then no cross-validation
+    is performed.
     '''
     Dres, Zres, Xres, Yres = _check_input(Dres, Zres, Xres, Yres)
 
@@ -111,7 +119,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
-    alphas = np.logspace(0, 1, 1) * nobs**(0.3)
+    alphas = alpha_multipliers * nobs**(alpha_exponent)
     if ivreg_type == '2sls':
         ivreg_eta = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
                                                           alphas=alphas),
@@ -148,10 +156,10 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
 
     if dual_type == 'Q':
         dualIV = ivreg_eta.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = np.logspace(0, 1, 1) * nobs**(0.3)
+        alphas = alpha_multipliers * nobs**(alpha_exponent)
         ivreg_gamma = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
     elif dual_type == 'Z':
-        alphas = np.logspace(0, 1, 1) * nobs**(0.3)
+        alphas = alpha_multipliers * nobs**(alpha_exponent)
         dualIV = Zres
         if ivreg_type == '2sls':
             ivreg_gamma = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
@@ -516,9 +524,36 @@ class ProximalDE(BaseEstimator):
         If these are all small or there aren't many large, then this is
         a signal of weak proxies. Also the number of non-zero singular
         values, is roughly a bound on the dimensionality of the hidden mediator.
+
+        A critical value is also returned, based on a conservative bound
+        on the error of the singular values, using Weyl's inequality and
+        a high probability bound on the error in the Frobenius norm of the
+        sample covariance with the population covariance matrix. See e.g.
+        https://congma1028.github.io/Teaching/STAT37797_2024/Lectures2021/spectral_method/spectral_method_l2_theory.pdf
+        Singular values that are above this critical value, we can confidently
+        reject as non-zero.
+
+        The upper bound is sqrt(sum_{ij} f_ij^2) where he quantities fij are
+        fij = En[XiZj'] - E[XiZj'] and follow approximately a multivariate normal distribution
+        with a covariance V that can be approximated by an empirical covariance.
+        The sum of their squares sum_{ij} fij^2, follows the sum of p independent chi2(1)
+        distributions (with p rows of V) and weights the eigenvalues of V.
+        https://stats.stackexchange.com/questions/612905/distribution-sum-of-squared-correlated-normal-random-variables
+        The variance of this is twice the sum of the squares eigenvalues of V.
+        So the standard deviation of sum_{ij} f_{ij}^2 is the root of the sum of squares
+        of the eigevnalues. We will consider heuristically a typical deviation as four times the standard
+        deviation. Then we care about the root of sum_{ij} f_{ij}^2, with a typical deviation
+        sqrt(4 sqrt(sum of squares of eigenvalues)).
         '''
         _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
-        return S
+        Z = self.Zres_
+        X = self.Xres_
+        cXZ = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
+        cXZ = cXZ - cXZ.mean(axis=0, keepdims=True)
+        cXZcov = cXZ.T @ cXZ / cXZ.shape[0]
+        eigs = scipy.linalg.eigvalsh(cXZcov / Z.shape[0])
+        critical = np.sqrt(4 * np.sqrt(2 * np.sum(eigs**2)))
+        return S, critical
 
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
         '''
@@ -583,11 +618,12 @@ class ProximalDE(BaseEstimator):
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
 
-        S = self.covariance_rank_test()
+        S, Scritical = self.covariance_rank_test()
         topk = np.min([5, self.px_, self.pz_])
         sm.add_extra_txt([
             f'top-{topk}-singular values of Cov(X, Z): [' + ', '.join([str(np.round(S[i], decimals))
                                                                       for i in range(topk)]) + ']',
+            'Conservative critical threshold for non-zero singular value: ' + str(np.round(Scritical, decimals)),
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
             'and tilde denoting residual after removing the part predictable from $W$.',

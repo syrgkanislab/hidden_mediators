@@ -71,7 +71,7 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
+def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -212,7 +212,7 @@ def estimate_final(Dbar, Dres, Ybar):
     return point_debiased[0, 0], std_debiased, inf.flatten()
 
 
-def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
+def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
     ''' Estimate nuisance parameters eta and gamma and then estimate
     target parameter using the nuisances.
@@ -233,7 +233,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='2sls',
         eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='2sls', categorical=True,
+def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv', categorical=True,
                            cv=5, semi=True, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
@@ -290,10 +290,10 @@ def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
 class ProximalDE(BaseEstimator):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
 
-    dual_type: one of {'Z', 'Q'}
+    dual_type: one of {'Z', 'Q'}, optional (default='Z')
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
-    ivreg_type: on of {'2sls', 'adv'}
+    ivreg_type: one of {'2sls', 'adv'}, optional (default='adv')
         Whether to use regularized 2SLS or regularized adversarial IV to
         solve the l2 regularized IV regressions for the nuisances.
     categorical: whether D is categorical
@@ -309,7 +309,7 @@ class ProximalDE(BaseEstimator):
 
     def __init__(self, *,
                  dual_type='Z',
-                 ivreg_type='2sls',
+                 ivreg_type='adv',
                  categorical=True,
                  cv=5,
                  semi=True,

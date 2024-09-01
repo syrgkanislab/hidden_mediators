@@ -167,7 +167,7 @@ def test_estimate_nuisances():
     alpha_exponent = 0.35
     Z, X, Y, _ = gen_iv_data(n, pz, px, pw, .5)
     alphas = alpha_multipliers * Z.shape[0]**(alpha_exponent)
-    
+
     for dual_type in ['Z', 'Q']:
         _, Ybar, eta, gamma, point_pre, std_pre, *_ = estimate_nuisances(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
                                                                          dual_type=dual_type,
@@ -952,6 +952,55 @@ def test_primal_violation_caught_z():
     assert est.dual_violation_ < 4.0
 
 
+def test_rank_violation_caught():
+    ''' Test that we catch a violation of the existence of any
+    correlation between X and Z
+    '''
+    np.random.seed(123)
+    n = 100000
+    pw = 1
+    pz, px = 40, 50
+    # Indirect effect is a*b, direct effect is c
+    a, b, c = .7, .8, .5
+    d, e, f, g = 0.0, 0.0, 1.0, 1.0
+    sm, sz, sx, sy = 2, 1, 1, 1
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    D = D.reshape(-1, 1)
+    D = D - D.mean(axis=0)
+    X = X - X.mean(axis=0)
+    Z = Z - Z.mean(axis=0)
+    Y = Y.reshape(-1, 1)
+    Y = Y - Y.mean(axis=0)
+
+    est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+    est.fit(None, D, Z, X, Y)
+    svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
+    assert svalues[0] < svalues_crit
+
+    np.random.seed(123)
+    n = 100000
+    pw = 1
+    pz, px = 10, 20
+    # Indirect effect is a*b, direct effect is c
+    a, b, c = .7, .8, .5
+    d, e, f, g = 0.0, 1.0, 1.0, 1.0
+    sm, sz, sx, sy = 2, 1, 1, 1
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    D = D.reshape(-1, 1)
+    D = D - D.mean(axis=0)
+    X = X - X.mean(axis=0)
+    Z = Z - Z.mean(axis=0)
+    Y = Y.reshape(-1, 1)
+    Y = Y - Y.mean(axis=0)
+
+    est = ProximalDE(dual_type='Z', cv=3, semi=True,
+                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+    est.fit(None, D, Z, X, Y)
+    svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
+    assert svalues[0] > svalues_crit
+
+
 def test_dual_violation_z():
     ''' Test that we catch a violation of the existence of the
     dual solution
@@ -1022,8 +1071,8 @@ def test_accuracy_no_violations():
                         est.fit(None, D, Z, X, Y)
                         assert np.allclose(est.alpha_multipliers_, np.array([1.0, 1.0 * n]))
                         assert est.alpha_exponent_ == 0.39
-                        assert est.ivreg_eta_.alpha_best == n**(0.39)
-                        assert est.ivreg_gamma_.alpha_best == n**(.39)
+                        assert est.ivreg_eta_.alpha_ == n**(0.39)
+                        assert est.ivreg_gamma_.alpha_ == n**(.39)
 
                     print(c, est.point_, est.stderr_)
                     cov = (est.point_ - 4 * est.stderr_ <= c) & (est.point_ + 4 * est.stderr_ >= c)

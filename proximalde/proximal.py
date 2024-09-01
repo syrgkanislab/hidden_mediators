@@ -5,6 +5,7 @@ from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
+import warnings
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
 from .crossfit import fit_predict
@@ -353,7 +354,7 @@ class ProximalDE(BaseEstimator):
                  dual_type='Z',
                  ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]),
-                 alpha_exponent=0.3,      
+                 alpha_exponent=0.3,
                  categorical=True,
                  cv=5,
                  semi=True,
@@ -575,9 +576,9 @@ class ProximalDE(BaseEstimator):
         https://stats.stackexchange.com/questions/612905/distribution-sum-of-squared-correlated-normal-random-variables
         The variance of this is twice the sum of the squares eigenvalues of V.
         So the standard deviation of sum_{ij} f_{ij}^2 is the root of the sum of squares
-        of the eigevnalues. We will consider heuristically a typical deviation as twice the standard
+        of the eigevnalues. We will consider heuristically a typical deviation as 10 times the standard
         deviation. Then we care about the root of sum_{ij} f_{ij}^2, with a typical deviation
-        sqrt(4 sqrt(sum of squares of eigenvalues)).
+        sqrt(10 sqrt(sum of squares of eigenvalues)).
 
         Parameters
         ----------
@@ -595,13 +596,31 @@ class ProximalDE(BaseEstimator):
         # the line below creates a matrix of (n, px * pz), which could be quite large
         # we need this matrix to calculate the "covariance" of the entries of the covariance
         # matrix En[X Z'], whose eigenvalues we then want to compute.
-        cXZ = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
-        cXZ = cXZ - cXZ.mean(axis=0, keepdims=True)
-        cXZcov = cXZ.T @ cXZ / cXZ.shape[0]
+        n, pz = Z.shape
+        px = X.shape[1]
+
+        # if data too large, we do a monte carlo approximation of the eigenvalues
+        # though in the end we divide these eigenvalues appropriately by the original
+        # size n
+        if n * px * pz > 1e9:
+            subset = np.random.choice(n, size=int(1e9 // (px * pz)), replace=False)
+            Z, X = Z[subset], X[subset]
+            warnings.warn("Due to large sample size and proxy dimension, we performed "
+                          "monte-carlo approximation of critical value using "
+                          f"random subset of n={len(subset)} samples and then re-scaled "
+                          "appropriately to account for the larger original sample size.")
+
+        cZX = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
+        cZX = cZX - cZX.mean(axis=0, keepdims=True)
+        cZXcov = cZX.T @ cZX / cZX.shape[0]
+
         # here we compute eigenvalues of a symmetric (px * pz, px * pz) matrix
-        # this can also be a bit slow
-        eigs = scipy.linalg.eigvalsh(cXZcov / Z.shape[0])
-        critical = np.sqrt(2 * np.sqrt(2 * np.sum(eigs**2)))
+        # this can also be a bit slow. We scale by the original size n, not the
+        # potentially subsampled size.
+        eigs = scipy.linalg.eigvalsh(cZXcov / n)
+
+        critical = np.sqrt(10 * np.sqrt(2 * np.sum(eigs**2)))
+
         return S, critical
 
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):

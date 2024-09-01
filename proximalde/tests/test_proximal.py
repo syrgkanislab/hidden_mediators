@@ -625,7 +625,7 @@ def test_pde_subsample_bootstrap():
     n = 100
     pw = 1
     pz, px = 3, 2
-    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g)
 
     pde = ProximalDE(cv=2, n_jobs=1)
     pde.fit(W, D, Z, X, Y)
@@ -636,6 +636,16 @@ def test_pde_subsample_bootstrap():
 
     with pytest.raises(AttributeError, match="Unknown `stage`") as e_info:
         pde.bootstrap_inference(stage=4, n_subsamples=100)
+    print(e_info)
+
+    pde.fit(None, D, Z, X, Y)
+    for stage in [2, 3]:
+        inf = pde.bootstrap_inference(stage=stage, n_subsamples=100)
+        lb1, ub1 = inf.conf_int(alpha=.1)
+        assert (lb1 < .5) & (ub1 > .5)
+
+    with pytest.raises(AttributeError, match="No first stage") as e_info:
+        pde.bootstrap_inference(stage=1, n_subsamples=100)
     print(e_info)
 
 

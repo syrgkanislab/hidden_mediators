@@ -1117,7 +1117,7 @@ def test_weakiv_tests():
                             if pz == 1:
                                 weakiv_stat, weakiv_crit, pi, var_pi = est.weakiv_test(alpha=0.06, tau=0.099,
                                                                                        return_pi_and_var=True)
-                                assert np.iscalar(pi)
+                                assert np.isscalar(pi)
                                 assert np.isscalar(var_pi)
                             else:
                                 weakiv_stat, weakiv_crit = est.weakiv_test(alpha=0.06, tau=0.099,

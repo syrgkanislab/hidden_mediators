@@ -957,9 +957,9 @@ def test_rank_violation_caught():
     correlation between X and Z
     '''
     np.random.seed(123)
-    n = 100000
+    n = 500000
     pw = 1
-    pz, px = 40, 50
+    pz, px = 60, 100
     # Indirect effect is a*b, direct effect is c
     a, b, c = .7, .8, .5
     d, e, f, g = 0.0, 0.0, 1.0, 1.0
@@ -1114,7 +1114,14 @@ def test_weakiv_tests():
                             est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=5, semi=True,
                                              multitask=False, n_jobs=-1, random_state=3, verbose=0)
                             est.fit(W, D, Z, X, Y)
-                            weakiv_stat, weakiv_crit = est.weakiv_test(alpha=0.06, tau=0.099)
+                            if pz == 1:
+                                weakiv_stat, weakiv_crit, pi, var_pi = est.weakiv_test(alpha=0.06, tau=0.099,
+                                                                                       return_pi_and_var=True)
+                                assert np.iscalar(pi)
+                                assert np.isscalar(var_pi)
+                            else:
+                                weakiv_stat, weakiv_crit = est.weakiv_test(alpha=0.06, tau=0.099,
+                                                                           return_pi_and_var=False)
                             if est.dualIV_.shape[1] == 1:
                                 pi = np.mean(est.Dres_ * est.Dbar_) / np.mean(est.Dbar_**2)
                                 inf_pi = est.Dbar_ * (est.Dres_ - pi * est.Dbar_)

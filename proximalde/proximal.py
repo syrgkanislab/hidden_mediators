@@ -554,7 +554,7 @@ class ProximalDE(BaseEstimator):
         else:
             return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
 
-    def covariance_rank_test(self, *, calculate_critical=False):
+    def covariance_rank_test(self, *, calculate_critical=False, alpha=0.05, mc_samples=1000):
         ''' Singular values of covariance matrix of Xres with Zres.
         If these are all small or there aren't many large, then this is
         a signal of weak proxies. Also the number of non-zero singular
@@ -571,14 +571,14 @@ class ProximalDE(BaseEstimator):
         The upper bound is sqrt(sum_{ij} f_ij^2) where he quantities fij are
         fij = En[XiZj'] - E[XiZj'] and follow approximately a multivariate normal distribution
         with a covariance V that can be approximated by an empirical covariance.
-        The sum of their squares sum_{ij} fij^2, follows the sum of p independent chi2(1)
-        distributions (with p rows of V) and weights the eigenvalues of V.
+        The sum of their squares sum_{ij} fij^2, follows the weighted sum of p independent chi2(1)
+        distributions (with p rows of V), with weights the eigenvalues of V.
         https://stats.stackexchange.com/questions/612905/distribution-sum-of-squared-correlated-normal-random-variables
-        The variance of this is twice the sum of the squares eigenvalues of V.
-        So the standard deviation of sum_{ij} f_{ij}^2 is the root of the sum of squares
-        of the eigevnalues. We will consider heuristically a typical deviation as 10 times the standard
-        deviation. Then we care about the root of sum_{ij} f_{ij}^2, with a typical deviation
-        sqrt(10 sqrt(sum of squares of eigenvalues)).
+        We then calculate the 1 - alpha percentile of this distribution
+        via monte carlo simulation and take the square root of that percentile as the
+        critical value of sqrt(sum_{ij} f_{ij}^2). Alternatively, we could have also
+        calculated the variance of this which is twice the sum of the squares eigenvalues
+        of V and use some heuristic calculation as some multiple of the standard deviation.
 
         Parameters
         ----------
@@ -586,6 +586,10 @@ class ProximalDE(BaseEstimator):
             Calculates a critical value above which we can confidently claim that
             a singular value is zero. This is an intensive calculation so it is made
             optional.
+        alpha: float in (0, 1), optional (default=0.05)
+            The confidence level for the critical value
+        mc_samples: int, optional (default=1000)
+            Number of monte carlo samples for estimation of critical value
         '''
         _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
         Z = self.Zres_
@@ -619,7 +623,10 @@ class ProximalDE(BaseEstimator):
         # potentially subsampled size.
         eigs = scipy.linalg.eigvalsh(cZXcov / n)
 
-        critical = np.sqrt(10 * np.sqrt(2 * np.sum(eigs**2)))
+        # calculate the critical value via monte carlo simulation of the percentile
+        # of the weighted sum of independent chi-square distributed variables
+        samples = np.random.chisquare(df=1, size=(mc_samples, len(eigs))) @ eigs
+        critical = np.sqrt(np.percentile(samples, (1 - alpha) * 100))
 
         return S, critical
 

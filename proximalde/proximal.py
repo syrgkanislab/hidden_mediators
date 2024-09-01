@@ -975,7 +975,7 @@ class ProximalDE(BaseEstimator):
         elif stage == 1:
             method = self.subsample_all_stages
         else:
-            raise AttributeError("Stage should be one of [1, 2, 3]")
+            raise AttributeError("Unknown `stage`. Stage should be one of [1, 2, 3]")
 
         point_dist, subsamples = method(n_subsamples=n_subsamples,
                                         fraction=fraction,

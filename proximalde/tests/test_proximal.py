@@ -41,7 +41,7 @@ def test_residualize_w_shapes_and_accuracy():
     assert np.isclose(r2X, 0, atol=1e-3)
     assert np.isclose(r2Y, 0, atol=1e-3)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         residualizeW(Wfake, np.hstack([D.reshape(-1, 1), D.reshape(-1, 1)]),
                      Z.flatten(), X.flatten(), Y.flatten(),
                      categorical=True,
@@ -49,7 +49,7 @@ def test_residualize_w_shapes_and_accuracy():
                      random_state=None)
     print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         residualizeW(Wfake, D, Z.flatten(), X.flatten(),
                      np.hstack([Y.reshape(-1, 1), Y.reshape(-1, 1)]),
                      categorical=True,
@@ -57,7 +57,7 @@ def test_residualize_w_shapes_and_accuracy():
                      random_state=None)
     print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="same number of samples") as e_info:
         residualizeW(Wfake, D[:100], Z.flatten(), X.flatten(), Y,
                      categorical=True,
                      cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
@@ -233,16 +233,19 @@ def test_estimate_nuisances():
     assert np.allclose(gamma.flatten(), coef1, atol=5e-3)
     assert np.allclose(gamma.flatten(), np.ones(px) / px, atol=5e-2)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="Unknown `dual_type`") as e_info:
         estimate_nuisances(Y[:100], X[:100], X[:100], Y[:100], dual_type='341324')
     assert e_info.typename == 'AttributeError'
-    assert str(e_info.value) == "Unknown `dual_type`. Should be one of {'Q', 'Z'}"
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="Unknown `ivreg_type`") as e_info:
+        estimate_nuisances(Y[:100], X[:100], X[:100], Y[:100], ivreg_type='341324')
+    assert e_info.typename == 'AttributeError'
+
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         estimate_nuisances(np.hstack([Y, Y]), X, X, Y)
     print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         estimate_nuisances(Y, X, X, np.hstack([Y, Y]))
     print(e_info)
 
@@ -332,15 +335,15 @@ def test_estimate_final():
     assert np.allclose(np.std(inf) / np.sqrt(Z.shape[0]), std)
     assert np.allclose(point, 1, atol=2e-2)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         estimate_final(np.hstack([Z, Z]), X, Y)
     print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         estimate_final(Z, np.hstack([X, X]), Y)
     print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         estimate_final(Z, X, np.hstack([Y, Y]))
     print(e_info)
 
@@ -383,13 +386,13 @@ def test_proximal_de_equivalency():
     assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
     assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         proximal_direct_effect(W, Z[:, [0, 1]], Z[:, 1:], X[:, 1:], Y)
-    assert str(e_info.value) == "D should be a scalar treatment"
+    print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Z[:, 1:])
-    assert str(e_info.value) == "Y should be a scalar outcome"
+    print(e_info)
 
 
 def test_gen_subsamples():
@@ -447,15 +450,15 @@ def test_raise_nonfitted():
     '''
     pde = ProximalDE(cv=2, n_jobs=1)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="not fitted") as e_info:
         pde.robust_conf_int(lb=-3, ub=3)
-    assert str(e_info.value) == "Object is not fitted!"
+    print(e_info)
 
     for method in [pde.bootstrap_inference, pde.conf_int, pde.run_diagnostics, pde.subsample_all_stages,
                    pde.subsample_second_stage, pde.subsample_third_stage, pde.summary]:
-        with pytest.raises(AttributeError) as e_info:
+        with pytest.raises(AttributeError, match="not fitted") as e_info:
             method()
-        assert str(e_info.value) == "Object is not fitted!"
+        print(e_info)
 
 
 def test_pde_fit():
@@ -467,13 +470,13 @@ def test_pde_fit():
     W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
 
     pde = ProximalDE(cv=2, n_jobs=1)
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         pde.fit(W, Z[:, [0, 1]], Z[:, 1:], X[:, 1:], Y)
-    assert str(e_info.value) == "D should be a scalar treatment"
+    print(e_info)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         pde.fit(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Z[:, [0, 1]])
-    assert str(e_info.value) == "Y should be a scalar outcome"
+    print(e_info)
 
     for semi, cv, dual_type, ivreg_type, multitask, \
         categorical, random_state in [(True, 2, 'Z', '2sls', True, True, 123),
@@ -631,9 +634,9 @@ def test_pde_subsample_bootstrap():
         lb1, ub1 = inf.conf_int(alpha=.1)
         assert (lb1 < .5) & (ub1 > .5)
 
-    with pytest.raises(AttributeError) as e_info:
+    with pytest.raises(AttributeError, match="Unknown `stage`") as e_info:
         pde.bootstrap_inference(stage=4, n_subsamples=100)
-    assert str(e_info.value) == "Stage should be one of [1, 2, 3]"
+    print(e_info)
 
 
 def test_influential_set():
@@ -652,17 +655,17 @@ def test_influential_set():
         else:
             assert est.conf_int(alpha=0.05)[0] > 0
 
-        with pytest.raises(AttributeError) as e_info:
+        with pytest.raises(AttributeError, match="run_diagnostics") as e_info:
             est.influential_set()
-        assert str(e_info.value) == "Please call the `run_diagnostics` method first."
+        print(e_info)
 
         est.run_diagnostics()
         assert hasattr(est, 'diag_')
         est.fit(W, D, Z, X, Y)
 
-        with pytest.raises(AttributeError) as e_info:
+        with pytest.raises(AttributeError, match="run_diagnostics") as e_info:
             est.influential_set()
-        assert str(e_info.value) == "Please call the `run_diagnostics` method first."
+        print(e_info)
 
         est.run_diagnostics()
         inds = est.influential_set(alpha=0.05)
@@ -676,9 +679,9 @@ def test_influential_set():
         else:
             assert est2.conf_int(alpha=0.05)[0] < 0
 
-        with pytest.raises(AttributeError) as e_info:
+        with pytest.raises(AttributeError, match="must be provided") as e_info:
             est.influential_set(alpha=0.05, use_robust_conf_inf=True)
-        assert str(e_info.value) == "`lb` and `ub` must be provided for robust interval"
+        print(e_info)
 
         inds = est.influential_set(alpha=0.05, use_robust_conf_inf=True, lb=-2, ub=2)
         est2 = clone(est)
@@ -975,7 +978,8 @@ def test_rank_violation_caught():
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
                      multitask=False, n_jobs=-1, random_state=3, verbose=0)
     est.fit(None, D, Z, X, Y)
-    svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
+    with pytest.warns(UserWarning, match="large sample size"):
+        svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
     assert svalues[0] < svalues_crit
 
     np.random.seed(123)

@@ -1009,12 +1009,22 @@ def test_accuracy_no_violations():
                     W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g,
                                                             sm=sm, sz=sz, sx=sx, sy=sy)
 
-                    est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
-                                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
                     if pass_w:
+                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
+                                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
                         est.fit(W, D, Z, X, Y)
                     else:
+                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type,
+                                         alpha_multipliers=np.array([1.0, 1.0 * n]),
+                                         alpha_exponent=0.39,
+                                         cv=3, semi=True,
+                                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
                         est.fit(None, D, Z, X, Y)
+                        assert np.allclose(est.alpha_multipliers_, np.array([1.0, 1.0 * n]))
+                        assert est.alpha_exponent_ == 0.39
+                        assert est.ivreg_eta_.alpha_best == n**(0.39)
+                        assert est.ivreg_gamma_.alpha_best == n**(.39)
+
                     print(c, est.point_, est.stderr_)
                     cov = (est.point_ - 4 * est.stderr_ <= c) & (est.point_ + 4 * est.stderr_ >= c)
                     print(cov, est.idstrength_)
@@ -1100,7 +1110,7 @@ def exp_summary(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
     est.fit(W, D, Z, X, Y)
     lb, ub = est.robust_conf_int(lb=-2, ub=2)
     weakiv_stat, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
-    eigs, _ = est.covariance_rank_test()
+    eigs, _ = est.covariance_rank_test(calculate_critical=True)
     maxeig = eigs[0]
     return est.stderr_, est.idstrength_, est.primal_violation_, est.dual_violation_, est.point_, lb, ub, \
         weakiv_stat, maxeig, pi, var_pi

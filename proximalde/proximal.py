@@ -229,6 +229,7 @@ def estimate_final(Dbar, Dres, Ybar):
 
 
 def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
+                 alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
     ''' Estimate nuisance parameters eta and gamma and then estimate
     target parameter using the nuisances.
@@ -238,6 +239,8 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
     Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std, _, _, _ = \
         estimate_nuisances(Dres, Zres, Xres, Yres,
                            dual_type=dual_type, ivreg_type=ivreg_type,
+                           alpha_multipliers=alpha_multipliers,
+                           alpha_exponent=alpha_exponent,
                            cv=cv, n_jobs=n_jobs,
                            verbose=verbose,
                            random_state=random_state)
@@ -249,8 +252,9 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
         eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv', categorical=True,
-                           cv=5, semi=True, multitask=False, n_jobs=-1,
+def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
+                           alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
+                           categorical=True, cv=5, semi=True, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
     dual_type: one of {'Z', 'Q'}
@@ -259,6 +263,16 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv', ca
     ivreg_type: on of {'2sls', 'adv'}
         Whether to use regularized 2SLS or regularized adversarial IV to
         solve the l2 regularized IV regressions for the nuisances.
+    alpha_multipliers: array, optional (default=np.array([1.0]))
+        The penalty weights in the regularized regressions for the nuisance
+        parameters eta and gamma are chosen via cross-validation among the
+        options of the form:
+            alpha_multipliers * nobs**(alpha_exponent)
+        If alpha_multipliers is a singleton list, then no cross-validation
+        is performed.
+    alpha_exponent: float, optional (default=0.3)
+        The power of the sample size, with which the regularization weight
+        scales, when estimating the nuisance parameters eta and gamma.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
@@ -287,6 +301,8 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv', ca
     point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
         second_stage(Dres, Zres, Xres, Yres,
                      dual_type=dual_type, ivreg_type=ivreg_type,
+                     alpha_multipliers=alpha_multipliers,
+                     alpha_exponent=alpha_exponent,
                      cv=cv, n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
@@ -312,6 +328,16 @@ class ProximalDE(BaseEstimator):
     ivreg_type: one of {'2sls', 'adv'}, optional (default='adv')
         Whether to use regularized 2SLS or regularized adversarial IV to
         solve the l2 regularized IV regressions for the nuisances.
+    alpha_multipliers: array, optional (default=np.array([1.0]))
+        The penalty weights in the regularized regressions for the nuisance
+        parameters eta and gamma are chosen via cross-validation among the
+        options of the form:
+            alpha_multipliers * nobs**(alpha_exponent)
+        If alpha_multipliers is a singleton list, then no cross-validation
+        is performed.
+    alpha_exponent: float, optional (default=0.3)
+        The power of the sample size, with which the regularization weight
+        scales, when estimating the nuisance parameters eta and gamma.
     categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
@@ -326,6 +352,8 @@ class ProximalDE(BaseEstimator):
     def __init__(self, *,
                  dual_type='Z',
                  ivreg_type='adv',
+                 alpha_multipliers=np.array([1.0]),
+                 alpha_exponent=0.3,      
                  categorical=True,
                  cv=5,
                  semi=True,
@@ -335,6 +363,8 @@ class ProximalDE(BaseEstimator):
                  random_state=None):
         self.dual_type = dual_type
         self.ivreg_type = ivreg_type
+        self.alpha_multipliers = alpha_multipliers
+        self.alpha_exponent = alpha_exponent
         self.categorical = categorical
         self.cv = cv
         self.semi = semi
@@ -391,6 +421,8 @@ class ProximalDE(BaseEstimator):
             idstrength, idstrength_std, ivreg_eta, ivreg_gamma, dualIV = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
                                dual_type=self.dual_type, ivreg_type=self.ivreg_type,
+                               alpha_multipliers=self.alpha_multipliers,
+                               alpha_exponent=self.alpha_exponent,
                                cv=self.cv, n_jobs=self.n_jobs,
                                verbose=self.verbose,
                                random_state=self.random_state)
@@ -407,6 +439,8 @@ class ProximalDE(BaseEstimator):
         self.px_ = X.shape[1]
         self.dual_type_ = self.dual_type
         self.ivreg_type_ = self.ivreg_type
+        self.alpha_multipliers_ = self.alpha_multipliers
+        self.alpha_exponent_ = self.alpha_exponent
         self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
@@ -519,7 +553,7 @@ class ProximalDE(BaseEstimator):
         else:
             return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
 
-    def covariance_rank_test(self):
+    def covariance_rank_test(self, *, calculate_critical=False):
         ''' Singular values of covariance matrix of Xres with Zres.
         If these are all small or there aren't many large, then this is
         a signal of weak proxies. Also the number of non-zero singular
@@ -541,18 +575,33 @@ class ProximalDE(BaseEstimator):
         https://stats.stackexchange.com/questions/612905/distribution-sum-of-squared-correlated-normal-random-variables
         The variance of this is twice the sum of the squares eigenvalues of V.
         So the standard deviation of sum_{ij} f_{ij}^2 is the root of the sum of squares
-        of the eigevnalues. We will consider heuristically a typical deviation as four times the standard
+        of the eigevnalues. We will consider heuristically a typical deviation as twice the standard
         deviation. Then we care about the root of sum_{ij} f_{ij}^2, with a typical deviation
         sqrt(4 sqrt(sum of squares of eigenvalues)).
+
+        Parameters
+        ----------
+        calculate_critical: bool, optional (default=False)
+            Calculates a critical value above which we can confidently claim that
+            a singular value is zero. This is an intensive calculation so it is made
+            optional.
         '''
         _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
         Z = self.Zres_
         X = self.Xres_
+        if not calculate_critical:
+            return S
+
+        # the line below creates a matrix of (n, px * pz), which could be quite large
+        # we need this matrix to calculate the "covariance" of the entries of the covariance
+        # matrix En[X Z'], whose eigenvalues we then want to compute.
         cXZ = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
         cXZ = cXZ - cXZ.mean(axis=0, keepdims=True)
         cXZcov = cXZ.T @ cXZ / cXZ.shape[0]
+        # here we compute eigenvalues of a symmetric (px * pz, px * pz) matrix
+        # this can also be a bit slow
         eigs = scipy.linalg.eigvalsh(cXZcov / Z.shape[0])
-        critical = np.sqrt(4 * np.sqrt(2 * np.sum(eigs**2)))
+        critical = np.sqrt(2 * np.sqrt(2 * np.sum(eigs**2)))
         return S, critical
 
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
@@ -618,12 +667,11 @@ class ProximalDE(BaseEstimator):
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
 
-        S, Scritical = self.covariance_rank_test()
+        S = self.covariance_rank_test()
         topk = np.min([5, self.px_, self.pz_])
         sm.add_extra_txt([
             f'top-{topk}-singular values of Cov(X, Z): [' + ', '.join([str(np.round(S[i], decimals))
                                                                       for i in range(topk)]) + ']',
-            'Conservative critical threshold for non-zero singular value: ' + str(np.round(Scritical, decimals)),
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
             'and tilde denoting residual after removing the part predictable from $W$.',
@@ -808,6 +856,8 @@ class ProximalDE(BaseEstimator):
                                   self.Yres_[sub],
                                   dual_type=self.dual_type_,
                                   ivreg_type=self.ivreg_type_,
+                                  alpha_multipliers=self.alpha_multipliers_,
+                                  alpha_exponent=self.alpha_exponent_,
                                   cv=self.cv_,
                                   n_jobs=1, verbose=0,
                                   random_state=None)
@@ -838,6 +888,8 @@ class ProximalDE(BaseEstimator):
                                             self.Y_[sub],
                                             dual_type=self.dual_type_,
                                             ivreg_type=self.ivreg_type_,
+                                            alpha_multipliers=self.alpha_multipliers_,
+                                            alpha_exponent=self.alpha_exponent_,
                                             categorical=self.categorical_,
                                             cv=self.cv_,
                                             semi=self.semi_,

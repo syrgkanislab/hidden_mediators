@@ -322,7 +322,58 @@ def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
 
 class ProximalDE(BaseEstimator):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
+    The method assumes a causal graph of the form:
+        D -> Y
+        D -> M -> Y
+        D -> Z
+        M -> Z
+        M -> X -> Y
+    and control variables W that have edges to all other variables and estimates
+    the effect that flows through the direct edge D -> Y. `D` and `Y` are assumed
+    to be scalar random variables. The method also assumes a partially linear
+    outcome bridge function:
+        h(D, X, W) = c D + eta'X + f(W)
+    where c is the controlled direct effect we want to estimate and h satisfies
+    the primal IV moment:
+        E[Y - h(D, X, W) | D, Z, W] = 0
+    This is satisfied if for instance the following conditional expectations
+    are partially linear:
+        E[Y|D, M, X, W] = c D + b'M + g'X + f_Y(W)
+        E[X|M, W] = F M + f_X(W)
+    and that the matrix F has full column rank. The method also assumes that
+    the parameter `c` is uniquely identified, even if eta is not. This requires
+    that the dual IV moment E[Z (D - gamma'Z)] admit solution. A sufficient
+    condition for this, is that the covariance matrix `Cov(M, Z)` has full
+    row rank.
 
+    The estimation procedure is the following:
+
+    1. In the first stage the method residualizes the control variables `W`,
+    out of all the other variables, i.e. the treatment `D`, the treatment
+    proxy controls `Z`, the outcome proxy controls `X` and the outcome `Y`
+    (or simply demeans these variables if `W=None`). This leads to the residual
+    variables `Dres`, `Zres`, `Xres`, `Yres`.
+
+    2. In the second stage it estimates regularized nuisance parameters eta
+    and gamma that solve the moment restrictions:
+      E[(Yres - eta'Xres - c * Dres) (Dres; Zres)] = 0
+      E[(Dres - gamma'Zres) Xres] = 0
+    The first moment is referred to as the primal IV moment, while the
+    second moment as the dual IV moment. Both solutions are estimated using
+    a regularized variations of linear IV regression. If `dual_type='Q'`,
+    the moment `E[(Dres - gamma'Q) X]` is used as the dual, where Q is the
+    projection of `X` on `(D;Z)`. This stage also calculates a regularized target
+    parameter `c`, which appears in the primal moment.
+
+    3. In the final stage, the method uses the following Neyman orthogonal
+    moment and solves for the target parameter c:
+      E[(Ybar - c * Dres) Dbar] = 0
+    where `Dbar = Dres - gamma'Zres` and `Ybar = Ybar - eta'Xres`. Confidence
+    intervals are calculated based on plug-in formulas for Neyman orthogonal
+    moment, two-stage estimation procedures.
+
+    Parameters
+    ----------
     dual_type: one of {'Z', 'Q'}, optional (default='Z')
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.

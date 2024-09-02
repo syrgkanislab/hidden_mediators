@@ -3,6 +3,24 @@ from sklearn.linear_model import LinearRegression
 import statsmodels.api as sm
 import scipy
 
+'''
+DISCLAIMER: This code has now been deprecated from the main analysis.
+In the main analysis we need to apply the first stage tests to the
+engineered instrument Dbar = D - gamma'Z. But gamma is also estimated
+from data and hence its uncertainty needs to be taken into account
+when calculating the variance of the regression coefficient of Dres
+on Dbar. The tests here do not do that and are intended to simply
+replicate the R package weak IV tests; which essentially assume that
+the instrument was not constructed using the same data and based on
+some estimation procedure.
+
+A more tailored weak iv test has been implemented in the ProximalDE
+class that fixes this error.
+
+We leave this code here, as it contains basically a replication of
+all the major F-tests for weak-IVs in Python, replicating the R functionality.
+'''
+
 
 def weakiv_tests(Z, X, Y, *, controls=None, tau=.1, alpha=.05):
     ''' Run weak instrument tests. These tests are based on F-tests of the

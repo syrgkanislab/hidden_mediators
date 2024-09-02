@@ -769,7 +769,7 @@ class ProximalDE(BaseEstimator):
         ''' Test that the primal moment
             E[(Dres - gamma'dualIV) Xres] = 0
         admits a solution, where `dualIV` is `Zres` if `dual_type='Z'`
-        or is `Q` (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`. 
+        or is `Q` (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`.
 
         Parameters
         ----------

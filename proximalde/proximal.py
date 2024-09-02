@@ -581,11 +581,42 @@ class ProximalDE(BaseEstimator):
                 ub = g if ub < g else ub
         return lb, ub
 
-    def weakiv_test(self, *, alpha=0.05, tau=0.1, return_pi_and_var=False):
+    def weakiv_test(self, *, alpha=0.05, tau=0.1, decimals=4, return_pi_and_var=False):
         ''' Simplification of the effective first stage F-test for the case
-        of only one instrument. See ivtests.py for more information on these
-        tests. See also here:
+        of only one instrument. Performs a first stage effective F-test with
+        `Dbar` as the instrument, and `Dres` as the treatment. Measures the strength
+        of the identification of the target parameter.
+        See proximalde.ivtests.weakiv_tests for more information on these tests.
+        See also here:
         https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
+
+        Parameters
+        ----------
+        alpha : float in (0, 1), optional (default=0.05)
+            Confidence level of the interval
+        tau : float in (0, 1), optional (default=0.1)
+            Target level of Nagar bias in the final IV parameter,
+            that is used in calculating the critical value for the test
+
+        Returns
+        -------
+        weakiv_stat : float
+            The test statistic for a weak instrument. Corresponds to the
+            effective F-statistic of Montiel-Olea and Pflueger, which in
+            this scalar case coincides with the heteroscedasticity robust
+            F-statistic.
+        weakiv_crit : float
+            The critical value for the test statistic based on a non-central
+            chi-squared distribution with parameters df=1, nc=1/tau at
+            quantile 1 - alpha.
+        pi : float, optional
+            Returned only if `return_pi_and_var=True`. The first stage
+            estimated coefficient of `Dres` on `Dbar`.
+        pi_var : float, optional
+            Returned only if `return_pi_and_var=True`. The heteroscedasticity
+            robust variance of the first stage estimated coefficient of `Dres`
+            on `Dbar`, accounting also for the uncertainty of the parameter
+            `gamma` that goes into `Dbar`.
         '''
         self._check_is_fitted()
         pi = np.mean(self.Dres_ * self.Dbar_) / np.mean(self.Dbar_**2)
@@ -600,10 +631,19 @@ class ProximalDE(BaseEstimator):
         # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
         # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]
 
+        weakiv_stat = pi**2 / var_pi
+        weakiv_crit = scipy.stats.ncx2(df=1, nc=1 / tau).ppf(1 - alpha)
+        weakiv_pval = scipy.stats.ncx2(df=1, nc=1 / tau).sf(weakiv_stat)
+        weakiv_stat = np.round(weakiv_stat, decimals)
+        weakiv_crit = np.round(weakiv_crit, decimals)
+        weakiv_pval = np.format_float_scientific(weakiv_pval,
+                                                 precision=decimals)
+        weakiv_dist = f'chi2nc(df=1, nc={np.round(1/tau, decimals)})'
+
         if return_pi_and_var:
-            return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau), pi, var_pi
+            return weakiv_stat, weakiv_dist, weakiv_pval, weakiv_crit, pi, var_pi
         else:
-            return pi**2 / var_pi, scipy.stats.ncx2.ppf(1 - alpha, df=1, nc=1 / tau)
+            return weakiv_stat, weakiv_dist, weakiv_pval, weakiv_crit
 
     def covariance_rank_test(self, *, calculate_critical=False, alpha=0.05, mc_samples=1000):
         ''' Singular values of covariance matrix of Xres with Zres.
@@ -641,6 +681,16 @@ class ProximalDE(BaseEstimator):
             The confidence level for the critical value
         mc_samples: int, optional (default=1000)
             Number of monte carlo samples for estimation of critical value
+
+        Returns
+        -------
+        S : array of float
+            The singular values of the empirical covariance `Cov(Z, X)` ordered
+            in decreasing order.
+        S_crit : float, optional
+            Returned only if `calculate_critical=True`. The critical value above
+            which we can confidently say that the corresponding singular value
+            of the population covariance matrix is non-zero.
         '''
         _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
         Z = self.Zres_
@@ -681,6 +731,111 @@ class ProximalDE(BaseEstimator):
 
         return S, critical
 
+    def primal_violation_test(self, *, alpha=0.05, decimals=4):
+        ''' Test that the primal moment
+            E[(Yres - eta'Xres - c * Dres) (Dres; Zres)] = 0
+        admits a solution.
+
+        Parameters
+        ----------
+        alpha: float in (0, 1), optional (default=0.05)
+            The confidence level for the critical value
+        decimals : int, optional (default=4)
+            Number of decimal points for floats and precision for scientific formats
+
+        Returns
+        -------
+        pviolation : float
+            The test statistic
+        pviolation_dist : str
+            The distribution that is used to calculate the critical value
+            for the statistic
+        pviolation_pval : str
+            The p-value of the null hypothesis that the moment has a solution,
+            formatted in scientific format
+        pviolation_crit : float
+            The critical value above which we can reject the null hypothesis
+            that the moment has a solution
+        '''
+        pviolation = np.round(self.primal_violation_, decimals)
+        pviolation_dist = f'chi2(df={self.pz_ + 1})'
+        pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
+        pviolation_pval = np.format_float_scientific(pviolation_pval,
+                                                     precision=decimals)
+        pviolation_crit = np.round(scipy.stats.chi2(self.pz_ + 1).ppf(1 - alpha), decimals)
+        return pviolation, pviolation_dist, pviolation_pval, pviolation_crit
+
+    def dual_violation_test(self, *, alpha=0.05, decimals=4):
+        ''' Test that the primal moment
+            E[(Dres - gamma'dualIV) Xres] = 0
+        admits a solution, where `dualIV` is `Zres` if `dual_type='Z'`
+        or is `Q` (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`. 
+
+        Parameters
+        ----------
+        alpha: float in (0, 1), optional (default=0.05)
+            The confidence level for the critical value
+        decimals : int, optional (default=4)
+            Number of decimal points for floats and precision for scientific formats
+
+        Returns
+        -------
+        dviolation : float
+            The test statistic
+        dviolation_dist : str
+            The distribution that is used to calculate the critical value
+            for the statistic
+        dviolation_pval : str
+            The p-value of the null hypothesis that the moment has a solution,
+            formatted in scientific format
+        dviolation_crit : float
+            The critical value above which we can reject the null hypothesis
+            that the moment has a solution
+        '''
+        dviolation = np.round(self.dual_violation_, decimals)
+        dviolation_dist = f'chi2(df={self.px_})'
+        dviolation_pval = scipy.stats.chi2(self.px_).sf(self.dual_violation_)
+        dviolation_pval = np.format_float_scientific(dviolation_pval,
+                                                     precision=decimals)
+        dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
+        return dviolation, dviolation_dist, dviolation_pval, dviolation_crit
+
+    def idstrength_violation_test(self, *, alpha=0.05, decimals=4):
+        ''' Test of the null hypothesis that
+            E[Dres (Dres - gamma'dualIV)] = 0
+        Identification requires that this null hypothesis be rejected.
+        Where `dualIV` is `Zres` if `dual_type='Z'` or is `Q`
+        (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`.
+
+        Parameters
+        ----------
+        alpha: float in (0, 1), optional (default=0.05)
+            The confidence level for the critical value
+        decimals : int, optional (default=4)
+            Number of decimal points for floats and precision for scientific formats
+
+        Returns
+        -------
+        idstrenth : float
+            The test statistic
+        idstrenth_dist : str
+            The distribution that is used to calculate the critical value
+            for the statistic
+        idstrenth_pval : str
+            The p-value of the null hypothesis that the moment has a solution,
+            formatted in scientific format
+        idstrenth_crit : float
+            The critical value above which we can reject the null hypothesis
+            that the moment has a solution
+        '''
+        strength = np.round(self.idstrength_, decimals)
+        strength_dist = f'|N(10, s={np.round(self.idstrength_std_, decimals)})|'
+        strength_pval = scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).sf(self.idstrength_)
+        strength_pval = np.format_float_scientific(strength_pval,
+                                                   precision=decimals)
+        strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
+        return strength, strength_dist, strength_pval, strength_crit
+
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
         '''
         Parameters
@@ -694,6 +849,10 @@ class ProximalDE(BaseEstimator):
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
+
+        Returns
+        -------
+        sm : statsmodels.iolib.summary.Summary object
         '''
         self._check_is_fitted()
 
@@ -710,29 +869,14 @@ class ProximalDE(BaseEstimator):
                                      "R^2 of W-Residual Nuisance Models"))
 
         # tests for identification and assumption violation
-        strength = np.round(self.idstrength_, decimals)
-        strength_dist = f'|N(10, s={np.round(self.idstrength_std_, decimals)})|'
-        strength_pval = scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).sf(self.idstrength_)
-        strength_pval = np.format_float_scientific(strength_pval,
-                                                   precision=decimals)
-        strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
-        pviolation = np.round(self.primal_violation_, decimals)
-        pviolation_dist = f'chi2(df={self.pz_ + 1})'
-        pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
-        pviolation_pval = np.format_float_scientific(pviolation_pval,
-                                                     precision=decimals)
-        pviolation_crit = np.round(scipy.stats.chi2(self.pz_ + 1).ppf(1 - alpha), decimals)
-        dviolation = np.round(self.dual_violation_, decimals)
-        dviolation_dist = f'chi2(df={self.px_})'
-        dviolation_pval = scipy.stats.chi2(self.px_).sf(self.dual_violation_)
-        dviolation_pval = np.format_float_scientific(dviolation_pval,
-                                                     precision=decimals)
-        dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
-        weakiv_stat, weakiv_crit = self.weakiv_test(alpha=alpha, tau=tau)
-        weakiv_stat = np.round(weakiv_stat, decimals)
-        weakiv_crit = np.round(weakiv_crit, decimals)
-        weakiv_pval = 'N/A'
-        weakiv_dist = f'chi2nc(df=1, nc={np.round(1/tau, decimals)})'
+        strength, strength_dist, strength_pval, strength_crit = self.idstrength_violation_test(alpha=alpha,
+                                                                                               decimals=decimals)
+        pviolation, pviolation_dist, pviolation_pval, pviolation_crit = self.primal_violation_test(alpha=alpha,
+                                                                                                   decimals=decimals)
+        dviolation, dviolation_dist, dviolation_pval, dviolation_crit = self.dual_violation_test(alpha=alpha,
+                                                                                                 decimals=decimals)
+        weakiv_stat, weakiv_dist, weakiv_pval, weakiv_crit = self.weakiv_test(alpha=alpha, tau=tau,
+                                                                              decimals=decimals)
         res = np.array([[strength, pviolation, dviolation, weakiv_stat],
                         [strength_dist, pviolation_dist, dviolation_dist, weakiv_dist],
                         [strength_pval, pviolation_pval, dviolation_pval, weakiv_pval],

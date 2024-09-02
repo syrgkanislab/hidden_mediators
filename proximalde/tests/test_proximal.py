@@ -1129,13 +1129,15 @@ def test_weakiv_tests():
                                              multitask=False, n_jobs=-1, random_state=3, verbose=0)
                             est.fit(W, D, Z, X, Y)
                             if pz == 1:
-                                weakiv_stat, weakiv_crit, pi, var_pi = est.weakiv_test(alpha=0.06, tau=0.099,
-                                                                                       return_pi_and_var=True)
+                                weakiv_stat, _, _, weakiv_crit, pi, var_pi = est.weakiv_test(alpha=0.06, tau=0.099,
+                                                                                             return_pi_and_var=True,
+                                                                                             decimals=20)
                                 assert np.isscalar(pi)
                                 assert np.isscalar(var_pi)
                             else:
-                                weakiv_stat, weakiv_crit = est.weakiv_test(alpha=0.06, tau=0.099,
-                                                                           return_pi_and_var=False)
+                                weakiv_stat, _, _, weakiv_crit = est.weakiv_test(alpha=0.06, tau=0.099,
+                                                                                 return_pi_and_var=False,
+                                                                                 decimals=20)
                             if est.dualIV_.shape[1] == 1:
                                 pi = np.mean(est.Dres_ * est.Dbar_) / np.mean(est.Dbar_**2)
                                 inf_pi = est.Dbar_ * (est.Dres_ - pi * est.Dbar_)
@@ -1179,7 +1181,7 @@ def exp_summary(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
                      multitask=False, n_jobs=1, random_state=3, verbose=0)
     est.fit(W, D, Z, X, Y)
     lb, ub = est.robust_conf_int(lb=-2, ub=2)
-    weakiv_stat, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
+    weakiv_stat, _, _, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
     eigs, _ = est.covariance_rank_test(calculate_critical=True)
     maxeig = eigs[0]
     return est.stderr_, est.idstrength_, est.primal_violation_, est.dual_violation_, est.point_, lb, ub, \

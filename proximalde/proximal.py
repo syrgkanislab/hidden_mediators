@@ -14,6 +14,21 @@ from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input
 
+def try_load_or_fit(X, Y, fname, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose):
+        try:
+            Yres=np.load(f'./data/{file}.npy')
+            old_splits=np.load(f'./data/{file}_splits.npy')
+            assert np.all(old_splits == splits)
+            assert (Yres.shape == Y.shape)
+            print(f"Loaded residual from {fname}...")
+        except FileNotFoundError:
+            print(f"Residualizing {fname}...")
+            Yres = Y - fit_predict(X, Y, modelcv, model, splits, semi, multitask,
+                               n_jobs, verbose)
+            np.save(f'./data/{file}.npy', Yres)
+            np.save(f'./data/{file}_splits.npy', splits)
+        return Yres
 
 def residualizeW(W, D, Z, X, Y, *, categorical=True,
                  cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
@@ -64,8 +79,8 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
         Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
                                n_jobs, verbose)
         print("Residualizing Y...") if verbose > 0 else None
-        Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
+        Yres = Y - Ypred 
+        Yres = try_load_or_fit(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs, verbose)
 
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)

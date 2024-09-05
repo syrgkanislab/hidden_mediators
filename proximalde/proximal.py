@@ -2,7 +2,7 @@ import numpy as np
 from sklearn.linear_model import LassoCV, Lasso
 from sklearn.linear_model import MultiTaskLassoCV, MultiTaskLasso
 from sklearn.linear_model import Ridge, RidgeCV
-from sklearn.model_selection import check_cv
+from sklearn.model_selection import check_cv, train_test_split
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
 import warnings
@@ -170,7 +170,6 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         cv.shuffle = True
     if hasattr(cv, 'random_state'):
         cv.random_state = random_state
-    splits = list(cv.split(Dres))
 
     DZres = np.column_stack([Dres, Zres])
     DXres = np.column_stack([Dres, Xres])
@@ -190,15 +189,18 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     else:
         raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
-    # calculate out-of-sample moment violation
-    primal_moments = np.zeros(DZres.shape)
-    for train, test in splits:
-        ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
-        primal_moments[test] = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
-    primal_violation = np.mean(primal_moments, axis=0)
-    primal_moments_inf = primal_moments - primal_violation
-    primal_violation_cov = primal_moments_inf.T @ primal_moments_inf / nobs
-    primal_violation_stat = nobs * primal_violation.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation
+    # calculate out-of-sample moment violation statistic
+    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    ntest = len(test)
+    ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
+    primal_moments_test = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
+    primal_violation_test = np.mean(primal_moments_test, axis=0)
+    primal_moments_test_inf = primal_moments_test - primal_violation_test
+    primal_violation_cov = primal_moments_test_inf.T @ primal_moments_test_inf / ntest**2
+    der = DZres.T @ DXres / nobs
+    cov_c_and_eta = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
+    primal_violation_cov += der @ cov_c_and_eta @ der.T
+    primal_violation_stat = primal_violation_test.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation_test
 
     # train on all the data to get coefficient eta
     ivreg_eta.fit(DZres, DXres, Yres)
@@ -233,16 +235,19 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     else:
         raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
 
-    # calculate out-of-sample dual moment violation
-    Dbar = np.zeros(Dres.shape)
-    for train, test in splits:
-        ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
-        Dbar[test] = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
-    dual_moments = Xres * Dbar
-    dual_violation = np.mean(dual_moments, axis=0)
-    dual_moments_inf = dual_moments - dual_violation
-    dual_violation_cov = dual_moments_inf.T @ dual_moments_inf / nobs
-    dual_violation_stat = nobs * dual_violation.T @ np.linalg.pinv(dual_violation_cov) @ dual_violation
+    # calculate out-of-sample dual moment violation statistic
+    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    ntest = len(test)
+    ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
+    Dbar_test = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
+    dual_moments_test = Xres[test] * Dbar_test
+    dual_violation_test = np.mean(dual_moments_test, axis=0)
+    dual_moments_test_inf = dual_moments_test - dual_violation_test.reshape(1, -1)
+    dual_violation_cov = dual_moments_test_inf.T @ dual_moments_test_inf / ntest**2
+    der = Xres.T @ dualIV / nobs
+    cov_gamma = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
+    dual_violation_cov += der @ cov_gamma @ der.T
+    dual_violation_stat = dual_violation_test.T @ scipy.linalg.pinvh(dual_violation_cov) @ dual_violation_test
 
     # train on all the data to get coefficient gamma
     ivreg_gamma.fit(Xres, dualIV, Dres)

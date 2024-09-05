@@ -13,24 +13,55 @@ from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input
+import pandas as pd 
 
-def try_load_or_fit(X, Y, fname, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose):
-        try:
-            Yres=np.load(f'./data/{file}.npy')
-            old_splits=np.load(f'./data/{file}_splits.npy')
-            assert np.all(old_splits == splits)
-            assert (Yres.shape == Y.shape)
-            print(f"Loaded residual from {fname}...")
-        except FileNotFoundError:
-            print(f"Residualizing {fname}...")
-            Yres = Y - fit_predict(X, Y, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
-            np.save(f'./data/{file}.npy', Yres)
-            np.save(f'./data/{file}_splits.npy', splits)
-        return Yres
+def load_or_fit_res(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs, verbose):
+    """
 
-def residualizeW(W, D, Z, X, Y, *, categorical=True,
+    Computes and returns Yres = Y - E[Y | X], where X and Y are numpy and 
+        potentially multivariate (# columns > 1) matrices. 
+    
+    If the file name fname is not empty '', will try to load Yres from the 
+        fname path first before computing. Note, due to randomness component 
+        of data (particularly splits), it's important to check that the data 
+        aligns with what was saved. To do this, metadata is computed, loaded, and 
+        checked against current metadata before assuming loading is ok. Here, 
+        metadata is the column means of all X,Y data over the first training split.
+        This is an imperfect test (ie. if the modelcv or model change) but should 
+        be reasonably accurate.  
+    
+    Other arguments modelcv, ..., verbose are as defined and passed into fit_single_predict.
+    """
+
+    save_path = f'/oak/stanford/groups/rbaltman/karaliu/bias_detection/causal_analysis/data_hm/{fname}'
+    load_save_data = fname != ''
+    
+    # To roughly check data and splits are the same as when saved,
+    # compute metadata = 1st split data means 
+    tr_split0_idxs, _ = splits[0]
+    current_metadata = np.concatenate([X[tr_split0_idxs].mean(axis=0),Y[tr_split0_idxs].mean(axis=0)])
+    try:
+        if not load_save_data:
+            raise FileNotFoundError
+        saved_metadata = np.load(f'{save_path}_meta.npy')
+        assert np.all(saved_metadata == current_metadata), "Metadata is not the same"
+        
+        Yres = np.load(f'{save_path}.npy')
+        assert (Yres.shape == Y.shape), f"Loaded Yres shape {Yres.shape} != known Y shape {Y.shape}"
+        
+        print(f"Loaded residual from {fname}...") if verbose > 0 else None
+    
+    except FileNotFoundError:
+        print(f"Residualizing {fname}...") if verbose > 0 else None
+        Yres = Y - fit_predict(X, Y, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+        
+        if load_save_data:
+            np.save(f'{save_path}.npy', Yres)
+            np.save(f'{save_path}_meta.npy', current_metadata)
+    
+    return Yres
+
+def residualizeW(W, D, Z, X, Y, D_label, Y_label, *, categorical=True,
                  cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
@@ -69,18 +100,26 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
             modelcv = LassoCV(random_state=random_state)
 
         splits = list(cv.split(W, D))
-        print("Residualizing D...") if verbose > 0 else None
-        Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
-        print("Residualizing Z...") if verbose > 0 else None
-        Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
-        print("Residualizing X...") if verbose > 0 else None
-        Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
-        print("Residualizing Y...") if verbose > 0 else None
-        Yres = Y - Ypred 
-        Yres = try_load_or_fit(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+
+        # Need file names to save residuals if data is UKBB
+        if D_label != '' and Y_label != '': #save and try to load res files
+            save_addn = ''
+            if Y_label in ['endo', 'preg']:
+                save_addn+='_FemOnly'
+            D_label = D_label.replace('_', '')
+            Winfo = f'_Wrm{D_label}'
+            save_fnames = [f'Yres_{Y_label}{Winfo}{save_addn}', 
+                           f'Dres_{D_label}{save_addn}',
+                           f'Xres{Winfo}{save_addn}', 
+                           f'Zres{Winfo}{save_addn}']
+        else: #do not save or try to load files
+            save_fnames = ['']*4
+
+        #####
+        Yres = load_or_fit_res(W, Y, save_fnames[0], modelcv, model, splits, semi, multitask, n_jobs, verbose)
+        Dres = load_or_fit_res(W, D, save_fnames[1], modelcv, model, splits, semi, multitask, n_jobs, verbose)
+        Xres = load_or_fit_res(W, X, save_fnames[2], modelcv, model, splits, semi, multitask, n_jobs, verbose)
+        Zres = load_or_fit_res(W, Z, save_fnames[3], modelcv, model, splits, semi, multitask, n_jobs, verbose)
 
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)
@@ -268,7 +307,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
         eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
+def proximal_direct_effect(W, D, Z, X, Y, *, D_label='', Y_label='', dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
                            categorical=True, cv=5, semi=True, multitask=False, n_jobs=-1,
                            verbose=0, random_state=None):
@@ -308,7 +347,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
 
     # residualize W from all the variables
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
-        residualizeW(W, D, Z, X, Y,
+        residualizeW(W, D, Z, X, Y, D_label, Y_label, 
                      categorical=categorical, cv=cv,
                      semi=semi, multitask=multitask,
                      n_jobs=n_jobs, verbose=verbose,
@@ -440,7 +479,7 @@ class ProximalDE(BaseEstimator):
         self.verbose = verbose
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y):
+    def fit(self, W, D, Z, X, Y, D_label: str = '', Y_label: str = ''):
         ''' Train the estimator
 
         Parameters
@@ -475,7 +514,7 @@ class ProximalDE(BaseEstimator):
 
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-            residualizeW(W, D, Z, X, Y,
+            residualizeW(W, D, Z, X, Y, D_label, Y_label, 
                          categorical=self.categorical, cv=self.cv,
                          semi=self.semi, multitask=self.multitask,
                          n_jobs=self.n_jobs, verbose=self.verbose,
@@ -542,6 +581,8 @@ class ProximalDE(BaseEstimator):
         self.ivreg_gamma_ = ivreg_gamma
         self.dualIV_ = dualIV
         self.inf_ = inf
+        self.D_label_ = D_label
+        self.Y_label_ = Y_label
 
         return self
 
@@ -851,7 +892,7 @@ class ProximalDE(BaseEstimator):
         strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
-    def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
+    def summary(self, *, save_dir='', alpha=0.05, tau=0.1, value=0, decimals=4):
         '''
         Parameters
         ----------
@@ -864,7 +905,9 @@ class ProximalDE(BaseEstimator):
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
-
+        save_dir : str, optional
+            Optional directory path to save summary objects under 
+            
         Returns
         -------
         sm : statsmodels.iolib.summary.Summary object
@@ -938,6 +981,9 @@ class ProximalDE(BaseEstimator):
             'it does not account for the estimation error of the projection matrix that goes into Q. '
             'So in that case the test can potentially be artificially large.'])
 
+        if save_dir:
+            pd.DataFrame(sm.tables[0]).to_csv(save_dir + '/point_est.csv')
+            pd.DataFrame(sm.tables[2]).to_csv(save_dir + '/tests.csv')
         return sm
 
     def run_diagnostics(self):

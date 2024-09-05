@@ -153,9 +153,4 @@ def load_ukbb_data(D_label: str, Y_label: str, norm: str = 'min_max'):
         Z = Z[female]
         X = X[female]
 
-    if len(D.shape) == 1:
-        D = D.reshape(-1, 1)
-    assert (D.shape[1]==1), "D should be a scalar treatment"
-    assert np.all([len(matrix.shape) == 2 for matrix in [W, Z, X, Y]])
-
     return W, W_feats, X, X_feats, Z, Z_feats, Y, D

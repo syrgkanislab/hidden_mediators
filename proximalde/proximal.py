@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 import warnings
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
+import scipy.linalg
 from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
@@ -136,17 +137,21 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
     # calculate out-of-sample moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
     ntest = len(test)
+    ntrain = len(train)
     ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
-    primal_moments_test = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
-    primal_violation_test = np.mean(primal_moments_test, axis=0)
-    primal_moments_test_inf = primal_moments_test - primal_violation_test
-    primal_violation_cov = primal_moments_test_inf.T @ primal_moments_test_inf / ntest**2
-    der = DZres.T @ DXres / nobs
-    cov_c_and_eta = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
-    primal_violation_cov += der @ cov_c_and_eta @ der.T
-    primal_violation_stat = primal_violation_test.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation_test
+    # Estimate of projection matrix E[(D;Z) (D;X)'] E[(D;Z) (D;X)']^+
+    # using a regularized SVD decomposition
+    U, S, _ = scipy.linalg.svd((DZres[train].T @ DXres[train]) / ntrain, full_matrices=False)
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.1))) @ U.T
+    primal_phi = DZres * (Yres - DXres @ ivreg_train.coef_.reshape(-1, 1))
+    primal_phi[train] = primal_phi[train] @ P.T
+    primal_moments = np.mean(primal_phi[test], axis=0)
+    primal_phi[test] = primal_phi[test] - primal_moments.reshape(1, -1)
+    primal_cov = primal_phi[test].T @ primal_phi[test] / ntest**2
+    primal_cov += primal_phi[train].T @ primal_phi[train] / ntrain**2
+    primal_violation_stat = primal_moments.T @ scipy.linalg.pinvh(primal_cov) @ primal_moments
 
     # train on all the data to get coefficient eta
     ivreg_eta.fit(DZres, DXres, Yres)
@@ -182,18 +187,22 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
 
     # calculate out-of-sample dual moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
     ntest = len(test)
+    ntrain = len(train)
     ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
-    Dbar_test = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
-    dual_moments_test = Xres[test] * Dbar_test
-    dual_violation_test = np.mean(dual_moments_test, axis=0)
-    dual_moments_test_inf = dual_moments_test - dual_violation_test.reshape(1, -1)
-    dual_violation_cov = dual_moments_test_inf.T @ dual_moments_test_inf / ntest**2
-    der = Xres.T @ dualIV / nobs
-    cov_gamma = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
-    dual_violation_cov += der @ cov_gamma @ der.T
-    dual_violation_stat = dual_violation_test.T @ scipy.linalg.pinvh(dual_violation_cov) @ dual_violation_test
+    # Estimate of projection matrix E[XZ] E[ZX]^+
+    # using a regularized SVD decomposition
+    U, S, _ = scipy.linalg.svd((Xres[train].T @ dualIV[train]) / ntrain, full_matrices=False)
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.1))) @ U.T
+    Dbar = Dres - dualIV @ ivreg_train.coef_.reshape(-1, 1)
+    dual_phi = Xres * Dbar
+    dual_phi[train] = dual_phi[train] @ P.T
+    dual_moments = np.mean(dual_phi[test], axis=0)
+    dual_phi[test] = dual_phi[test] - dual_moments.reshape(1, -1)
+    dual_cov = (dual_phi[test].T @ dual_phi[test]) / ntest**2
+    dual_cov += (dual_phi[train].T @ dual_phi[train]) / ntrain**2
+    dual_violation_stat = dual_moments.T @ scipy.linalg.pinvh(dual_cov) @ dual_moments
 
     # train on all the data to get coefficient gamma
     ivreg_gamma.fit(Xres, dualIV, Dres)

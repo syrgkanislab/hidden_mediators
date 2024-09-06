@@ -220,10 +220,10 @@ def advIV(Z, X, Y, alpha):
     XZ = X.T @ Z / n
     ZZinv = scipy.linalg.pinvh(Z.T @ Z / n)
     Q = Z @ ZZinv @ XZ.T
-    XX = X.T @ X / n
+    # XX = X.T @ X / n
     QY = Q.T @ Y / n
     XQ = X.T @ Q / n
-    Jinv = scipy.linalg.pinvh(XQ + (alpha / n) * XX)
+    Jinv = scipy.linalg.pinvh(XQ + (alpha / n) * np.eye(X.shape[1]))
     coef = Jinv @ QY
     inf = Q * Y - Q * (X @ coef)
     inf = inf @ Jinv.T

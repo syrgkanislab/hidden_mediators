@@ -144,7 +144,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     # Estimate of projection matrix E[(D;Z) (D;X)'] E[(D;Z) (D;X)']^+
     # using a regularized SVD decomposition
     U, S, _ = scipy.linalg.svd((DZres[train].T @ DXres[train]) / ntrain, full_matrices=False)
-    P = U @ np.diag(S / (S + 1 / ntrain**(0.1))) @ U.T
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
     primal_phi = DZres * (Yres - DXres @ ivreg_train.coef_.reshape(-1, 1))
     primal_phi[train] = primal_phi[train] @ P.T
     primal_moments = np.mean(primal_phi[test], axis=0)
@@ -194,7 +194,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     # Estimate of projection matrix E[XZ] E[ZX]^+
     # using a regularized SVD decomposition
     U, S, _ = scipy.linalg.svd((Xres[train].T @ dualIV[train]) / ntrain, full_matrices=False)
-    P = U @ np.diag(S / (S + 1 / ntrain**(0.1))) @ U.T
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
     Dbar = Dres - dualIV @ ivreg_train.coef_.reshape(-1, 1)
     dual_phi = Xres * Dbar
     dual_phi[train] = dual_phi[train] @ P.T

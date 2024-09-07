@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.special
-
+from sklearn.preprocessing import OneHotEncoder
 
 def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     '''
@@ -50,7 +50,7 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     return W, D, M, Z, X, Y
 
 
-def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1, pm=1):
+def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sm=2, sz=1, sx=1, sy=1, pm=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data
 
@@ -68,13 +68,9 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2,
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
-    M = np.random.binomial(pm, scipy.special.expit(a * D))
-
-    Z = d * D.reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
-    X = sx * np.random.normal(0, 1, (n, px))
-    for m in range(1, pm + 1):
-        Z += (M == m).reshape(-1, 1) * e[m - 1].reshape(1, -1)
-        X += (M == m).reshape(-1, 1) * f[m - 1].reshape(1, -1)
-
-    Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    M = np.random.binomial(1, scipy.special.expit(a * D))
+    M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
+    Z = M @ E + d * D.reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
+    X = M @ F + sx * np.random.normal(0, 1, (n, px))
+    Y = b * np.sum(M, axis=1) + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y

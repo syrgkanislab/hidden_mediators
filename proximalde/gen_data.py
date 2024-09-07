@@ -50,7 +50,7 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     return W, D, M, Z, X, Y
 
 
-def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sm=2, sz=1, sx=1, sy=1, pm=1):
+def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data
 

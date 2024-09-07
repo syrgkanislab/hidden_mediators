@@ -814,7 +814,7 @@ class ProximalDE(BaseEstimator):
         dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
         return dviolation, dviolation_dist, dviolation_pval, dviolation_crit
 
-    def idstrength_violation_test(self, *, alpha=0.05, decimals=4):
+    def idstrength_violation_test(self, *, alpha=0.05, c=10, decimals=4):
         ''' Test of the null hypothesis that
             E[Dres (Dres - gamma'dualIV)] = 0
         Identification requires that this null hypothesis be rejected.
@@ -825,6 +825,10 @@ class ProximalDE(BaseEstimator):
         ----------
         alpha: float in (0, 1), optional (default=0.05)
             The confidence level for the critical value
+        c : float, optional (default=10)
+            The null value we want to reject. Ideally we want the strength to
+            be strictly above zero, to avoid large bias in the final estimate
+            and this constant controls how far away from zero we want to test.
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
 
@@ -843,11 +847,11 @@ class ProximalDE(BaseEstimator):
             that the moment has a solution
         '''
         strength = np.round(self.idstrength_, decimals)
-        strength_dist = f'|N(10, s={np.round(self.idstrength_std_, decimals)})|'
-        strength_pval = scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).sf(self.idstrength_)
+        strength_dist = f'|N({c}, s={np.round(self.idstrength_std_, decimals)})|'
+        strength_pval = scipy.stats.foldnorm(c=c, scale=self.idstrength_std_).sf(self.idstrength_)
         strength_pval = np.format_float_scientific(strength_pval,
                                                    precision=decimals)
-        strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
+        strength_crit = np.round(scipy.stats.foldnorm(c=c, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
     def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
@@ -858,7 +862,7 @@ class ProximalDE(BaseEstimator):
             Confidence level of the interval
         tau : float in (0, 1), optional (default=0.05)
             Target Nagar bias level that is used in calculating the critical value
-            for the weak IV test
+            for the weak IV test. Roughly tests that strength is at least 1/tau.
         value : float, optional (default=0)
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
@@ -884,6 +888,7 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength, strength_dist, strength_pval, strength_crit = self.idstrength_violation_test(alpha=alpha,
+                                                                                               c=1/tau,
                                                                                                decimals=decimals)
         pviolation, pviolation_dist, pviolation_pval, pviolation_crit = self.primal_violation_test(alpha=alpha,
                                                                                                    decimals=decimals)

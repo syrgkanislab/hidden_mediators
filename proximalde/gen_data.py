@@ -1,6 +1,6 @@
 import numpy as np
 import scipy.special
-from sklearn.preprocessing import OneHotEncoder
+
 
 def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     '''

@@ -69,7 +69,7 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
-    M = np.random.binomial(1, scipy.special.expit(a * D))
+    M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1)))
     M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
     Z = M @ E + d * D.reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
     X = M @ F + sx * np.random.normal(0, 1, (n, px))

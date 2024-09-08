@@ -852,10 +852,11 @@ class ProximalDE(BaseEstimator):
         '''
         strength = np.round(self.idstrength_, decimals)
         strength_dist = f'|N({c}, s={np.round(self.idstrength_std_, decimals)})|'
-        strength_pval = scipy.stats.foldnorm(c=c, scale=self.idstrength_std_).sf(self.idstrength_)
+        dist = scipy.stats.foldnorm(c=c / self.idstrength_std_, scale=self.idstrength_std_)
+        strength_pval = dist.sf(self.idstrength_)
         strength_pval = np.format_float_scientific(strength_pval,
                                                    precision=decimals)
-        strength_crit = np.round(scipy.stats.foldnorm(c=c, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
+        strength_crit = np.round(dist.ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
     def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4):

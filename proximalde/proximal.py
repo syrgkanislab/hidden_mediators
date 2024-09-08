@@ -814,7 +814,7 @@ class ProximalDE(BaseEstimator):
         dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
         return dviolation, dviolation_dist, dviolation_pval, dviolation_crit
 
-    def idstrength_violation_test(self, *, alpha=0.05, c=10, decimals=4):
+    def idstrength_violation_test(self, *, alpha=0.05, c=0.0, decimals=4):
         ''' Test of the null hypothesis that
             E[Dres (Dres - gamma'dualIV)] = 0
         Identification requires that this null hypothesis be rejected.
@@ -825,10 +825,14 @@ class ProximalDE(BaseEstimator):
         ----------
         alpha: float in (0, 1), optional (default=0.05)
             The confidence level for the critical value
-        c : float, optional (default=10)
+        c : float, optional (default=0.0)
             The null value we want to reject. Ideally we want the strength to
             be strictly above zero, to avoid large bias in the final estimate
             and this constant controls how far away from zero we want to test.
+            Use roughly `c=1/tau`, where tau is the percent of Nagar bias, if you
+            want to use this test to detect a weak instrument problem. Use `c=0`
+            if you want to test the null hypothesis that the target parameter
+            is point identified.
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
 
@@ -854,7 +858,7 @@ class ProximalDE(BaseEstimator):
         strength_crit = np.round(scipy.stats.foldnorm(c=c, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
-    def summary(self, *, alpha=0.05, tau=0.1, value=0, decimals=4):
+    def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4):
         '''
         Parameters
         ----------
@@ -863,6 +867,11 @@ class ProximalDE(BaseEstimator):
         tau : float in (0, 1), optional (default=0.05)
             Target Nagar bias level that is used in calculating the critical value
             for the weak IV test. Roughly tests that strength is at least 1/tau.
+        c : float, optional (default=0.0)
+            Target center value for the null hypothesis in the id strength test.
+            Can be thought as the analogue of 1/tau. Use 1/tau if you want to use
+            this test to detect weak instruments. Use 0.0 if you want to test the
+            null of whether the target parameter is point identified.
         value : float, optional (default=0)
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
@@ -888,7 +897,7 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength, strength_dist, strength_pval, strength_crit = self.idstrength_violation_test(alpha=alpha,
-                                                                                               c=1/tau,
+                                                                                               c=c,
                                                                                                decimals=decimals)
         pviolation, pviolation_dist, pviolation_pval, pviolation_crit = self.primal_violation_test(alpha=alpha,
                                                                                                    decimals=decimals)

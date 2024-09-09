@@ -8,6 +8,7 @@ from joblib import Parallel, delayed
 import warnings
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
+import scipy.linalg
 from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
@@ -189,17 +190,21 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
     # calculate out-of-sample moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
     ntest = len(test)
+    ntrain = len(train)
     ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
-    primal_moments_test = DZres[test] * (Yres[test] - DXres[test] @ ivreg_train.coef_.reshape(-1, 1))
-    primal_violation_test = np.mean(primal_moments_test, axis=0)
-    primal_moments_test_inf = primal_moments_test - primal_violation_test
-    primal_violation_cov = primal_moments_test_inf.T @ primal_moments_test_inf / ntest**2
-    der = DZres.T @ DXres / nobs
-    cov_c_and_eta = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
-    primal_violation_cov += der @ cov_c_and_eta @ der.T
-    primal_violation_stat = primal_violation_test.T @ np.linalg.pinv(primal_violation_cov) @ primal_violation_test
+    # Estimate of projection matrix E[(D;Z) (D;X)'] E[(D;Z) (D;X)']^+
+    # using a regularized SVD decomposition
+    U, S, _ = scipy.linalg.svd((DZres[train].T @ DXres[train]) / ntrain, full_matrices=False)
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
+    primal_phi = DZres * (Yres - DXres @ ivreg_train.coef_.reshape(-1, 1))
+    primal_phi[train] = primal_phi[train] @ P.T
+    primal_moments = np.mean(primal_phi[test], axis=0)
+    primal_phi[test] = primal_phi[test] - primal_moments.reshape(1, -1)
+    primal_cov = primal_phi[test].T @ primal_phi[test] / ntest**2
+    primal_cov += primal_phi[train].T @ primal_phi[train] / ntrain**2
+    primal_violation_stat = primal_moments.T @ scipy.linalg.pinvh(primal_cov) @ primal_moments
 
     # train on all the data to get coefficient eta
     ivreg_eta.fit(DZres, DXres, Yres)
@@ -235,18 +240,22 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
 
     # calculate out-of-sample dual moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.5, shuffle=True, random_state=random_state)
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
     ntest = len(test)
+    ntrain = len(train)
     ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
-    Dbar_test = Dres[test] - dualIV[test] @ ivreg_train.coef_.reshape(-1, 1)
-    dual_moments_test = Xres[test] * Dbar_test
-    dual_violation_test = np.mean(dual_moments_test, axis=0)
-    dual_moments_test_inf = dual_moments_test - dual_violation_test.reshape(1, -1)
-    dual_violation_cov = dual_moments_test_inf.T @ dual_moments_test_inf / ntest**2
-    der = Xres.T @ dualIV / nobs
-    cov_gamma = ivreg_train.inf_.T @ ivreg_train.inf_ / ivreg_train.inf_.shape[0]**2
-    dual_violation_cov += der @ cov_gamma @ der.T
-    dual_violation_stat = dual_violation_test.T @ scipy.linalg.pinvh(dual_violation_cov) @ dual_violation_test
+    # Estimate of projection matrix E[XZ] E[ZX]^+
+    # using a regularized SVD decomposition
+    U, S, _ = scipy.linalg.svd((Xres[train].T @ dualIV[train]) / ntrain, full_matrices=False)
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
+    Dbar = Dres - dualIV @ ivreg_train.coef_.reshape(-1, 1)
+    dual_phi = Xres * Dbar
+    dual_phi[train] = dual_phi[train] @ P.T
+    dual_moments = np.mean(dual_phi[test], axis=0)
+    dual_phi[test] = dual_phi[test] - dual_moments.reshape(1, -1)
+    dual_cov = (dual_phi[test].T @ dual_phi[test]) / ntest**2
+    dual_cov += (dual_phi[train].T @ dual_phi[train]) / ntrain**2
+    dual_violation_stat = dual_moments.T @ scipy.linalg.pinvh(dual_cov) @ dual_moments
 
     # train on all the data to get coefficient gamma
     ivreg_gamma.fit(Xres, dualIV, Dres)
@@ -860,7 +869,7 @@ class ProximalDE(BaseEstimator):
         dviolation_crit = np.round(scipy.stats.chi2(self.px_).ppf(1 - alpha), decimals)
         return dviolation, dviolation_dist, dviolation_pval, dviolation_crit
 
-    def idstrength_violation_test(self, *, alpha=0.05, decimals=4):
+    def idstrength_violation_test(self, *, alpha=0.05, c=0.0, decimals=4):
         ''' Test of the null hypothesis that
             E[Dres (Dres - gamma'dualIV)] = 0
         Identification requires that this null hypothesis be rejected.
@@ -871,6 +880,14 @@ class ProximalDE(BaseEstimator):
         ----------
         alpha: float in (0, 1), optional (default=0.05)
             The confidence level for the critical value
+        c : float, optional (default=0.0)
+            The null value we want to reject. Ideally we want the strength to
+            be strictly above zero, to avoid large bias in the final estimate
+            and this constant controls how far away from zero we want to test.
+            Use roughly `c=1/tau`, where tau is the percent of Nagar bias, if you
+            want to use this test to detect a weak instrument problem. Use `c=0`
+            if you want to test the null hypothesis that the target parameter
+            is point identified.
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
 
@@ -889,11 +906,12 @@ class ProximalDE(BaseEstimator):
             that the moment has a solution
         '''
         strength = np.round(self.idstrength_, decimals)
-        strength_dist = f'|N(10, s={np.round(self.idstrength_std_, decimals)})|'
-        strength_pval = scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).sf(self.idstrength_)
+        strength_dist = f'|N({c}, s={np.round(self.idstrength_std_, decimals)})|'
+        dist = scipy.stats.foldnorm(c=c / self.idstrength_std_, scale=self.idstrength_std_)
+        strength_pval = dist.sf(self.idstrength_)
         strength_pval = np.format_float_scientific(strength_pval,
                                                    precision=decimals)
-        strength_crit = np.round(scipy.stats.foldnorm(c=10, scale=self.idstrength_std_).ppf(1 - alpha), decimals)
+        strength_crit = np.round(dist.ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
     def summary(self, *, save_dir='', alpha=0.05, tau=0.1, value=0, decimals=4):
@@ -904,7 +922,12 @@ class ProximalDE(BaseEstimator):
             Confidence level of the interval
         tau : float in (0, 1), optional (default=0.05)
             Target Nagar bias level that is used in calculating the critical value
-            for the weak IV test
+            for the weak IV test. Roughly tests that strength is at least 1/tau.
+        c : float, optional (default=0.0)
+            Target center value for the null hypothesis in the id strength test.
+            Can be thought as the analogue of 1/tau. Use 1/tau if you want to use
+            this test to detect weak instruments. Use 0.0 if you want to test the
+            null of whether the target parameter is point identified.
         value : float, optional (default=0)
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
@@ -932,6 +955,7 @@ class ProximalDE(BaseEstimator):
 
         # tests for identification and assumption violation
         strength, strength_dist, strength_pval, strength_crit = self.idstrength_violation_test(alpha=alpha,
+                                                                                               c=c,
                                                                                                decimals=decimals)
         pviolation, pviolation_dist, pviolation_pval, pviolation_crit = self.primal_violation_test(alpha=alpha,
                                                                                                    decimals=decimals)

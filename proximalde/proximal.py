@@ -61,7 +61,7 @@ def load_or_fit_res(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs
     
     return Yres
 
-def residualizeW(W, D, Z, X, Y, D_label, Y_label, *, categorical=True,
+def residualizeW(W, D, Z, X, Y, D_label, Y_label, save_fname_addn, *, categorical=True,
                  cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
@@ -103,15 +103,14 @@ def residualizeW(W, D, Z, X, Y, D_label, Y_label, *, categorical=True,
 
         # Need file names to save residuals if data is UKBB
         if D_label != '' and Y_label != '': #save and try to load res files
-            save_addn = ''
             if Y_label in ['endo', 'preg']:
-                save_addn+='_FemOnly'
+                save_fname_addn+='_FemOnly'
             D_label = D_label.replace('_', '')
             Winfo = f'_Wrm{D_label}'
-            save_fnames = [f'Yres_{Y_label}{Winfo}{save_addn}', 
-                           f'Dres_{D_label}{save_addn}',
-                           f'Xres{Winfo}{save_addn}', 
-                           f'Zres{Winfo}{save_addn}']
+            save_fnames = [f'Yres_{Y_label}{Winfo}{save_fname_addn}', 
+                           f'Dres_{D_label}{save_fname_addn}',
+                           f'Xres{Winfo}{save_fname_addn}', 
+                           f'Zres{Winfo}{save_fname_addn}']
         else: #do not save or try to load files
             save_fnames = ['']*4
 
@@ -484,7 +483,7 @@ class ProximalDE(BaseEstimator):
         self.verbose = verbose
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y, D_label: str = '', Y_label: str = ''):
+    def fit(self, W, D, Z, X, Y, D_label: str = '', Y_label: str = '', save_fname_addn: str = ''):
         ''' Train the estimator
 
         Parameters
@@ -519,7 +518,7 @@ class ProximalDE(BaseEstimator):
 
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-            residualizeW(W, D, Z, X, Y, D_label, Y_label, 
+            residualizeW(W, D, Z, X, Y, D_label, Y_label, save_fname_addn,
                          categorical=self.categorical, cv=self.cv,
                          semi=self.semi, multitask=self.multitask,
                          n_jobs=self.n_jobs, verbose=self.verbose,

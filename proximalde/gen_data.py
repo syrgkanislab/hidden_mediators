@@ -154,7 +154,7 @@ def load_ukbb_data(D_label: str, Y_label: str, norm: str = 'min_max'):
         X = X[female]
 
     return W, W_feats, X, X_feats, Z, Z_feats, Y, D
-=======
+
 def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data. Now the mediator is multi-dimensional (takes pm

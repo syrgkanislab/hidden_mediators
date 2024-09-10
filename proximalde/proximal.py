@@ -914,7 +914,7 @@ class ProximalDE(BaseEstimator):
         strength_crit = np.round(dist.ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
-    def summary(self, *, save_dir='', alpha=0.05, tau=0.1, value=0, decimals=4):
+    def summary(self, *, save_dir='', alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4):
         '''
         Parameters
         ----------

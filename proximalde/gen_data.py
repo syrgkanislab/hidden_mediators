@@ -4,9 +4,6 @@ from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_te
 from sklearn.linear_model import LogisticRegressionCV
 from .proximal import residualizeW
 
-#############################
-### Synthetic data generation 
-#############################
 
 def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     '''

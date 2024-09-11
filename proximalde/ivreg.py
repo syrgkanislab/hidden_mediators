@@ -129,7 +129,6 @@ class Regularized2SLS(BaseEstimator):
         inf = epsilon @ Jinv.T
         Cov = inf.T @ inf / inf.shape[0]
         self.stderr_ = np.sqrt(np.diag(Cov) / Qc.shape[0])
-
         self.inf_ = inf
         # store alternative way of calculating coefficient for
         # testing purposes
@@ -212,7 +211,7 @@ class RegularizedDualIVSolver(BaseEstimator):
         self.coef_ = coef.flatten()
         self.alpha_ = alpha_best
         self.inf_ = inf
-        self.stderr_ = np.ones(0)
+
         return self
 
 

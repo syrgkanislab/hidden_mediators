@@ -62,7 +62,7 @@ def load_or_fit_res(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs
     
     return Yres
 
-def residualizeW(W, D, Z, X, Y, D_label, Y_label, save_fname_addn, *, categorical=True,
+def residualizeW(W, D, Z, X, Y, D_label, Y_label, *, save_fname_addn = "", categorical=True,
                  cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
@@ -492,7 +492,8 @@ class ProximalDE(BaseEstimator):
         self.verbose = verbose
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y, D_label: str = '', Y_label: str = '', save_fname_addn: str = ''):
+    def fit(self, W, D, Z, X, Y, D_label: str = '', Y_label: str = '', save_fname_addn: str = '',
+           Zres_idx = None, Xres_idx = None):
         ''' Train the estimator
 
         Parameters
@@ -527,12 +528,19 @@ class ProximalDE(BaseEstimator):
 
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-            residualizeW(W, D, Z, X, Y, D_label, Y_label, save_fname_addn,
+            residualizeW(W, D, Z, X, Y, D_label, Y_label, save_fname_addn=save_fname_addn,
                          categorical=self.categorical, cv=self.cv,
                          semi=self.semi, multitask=self.multitask,
                          n_jobs=self.n_jobs, verbose=self.verbose,
                          random_state=self.random_state)
-
+        
+        if Zres_idx is not None:
+            Zres = Zres[:,Zres_idx]
+            print(f"New shape: {Zres.shape}")
+        if Xres_idx is not None:
+            Xres = Xres[:,Xres_idx]
+            print(f"New shape: {Xres.shape}")
+            
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0
@@ -554,8 +562,8 @@ class ProximalDE(BaseEstimator):
         # properties of the class
         self.nobs_ = D.shape[0]
         self.pw_ = W.shape[1] if W is not None else 0
-        self.pz_ = Z.shape[1]
-        self.px_ = X.shape[1]
+        self.pz_ = Zres.shape[1]
+        self.px_ = Xres.shape[1]
         self.dual_type_ = self.dual_type
         self.ivreg_type_ = self.ivreg_type
         self.alpha_multipliers_ = self.alpha_multipliers

@@ -1,5 +1,8 @@
 import numpy as np
 import scipy.special
+from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_test_split
+from sklearn.linear_model import LogisticRegressionCV
+from .proximal import residualizeW
 
 
 def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
@@ -75,3 +78,65 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     X = M @ F + sx * np.random.normal(0, 1, (n, px))
     Y = b * np.sum(M, axis=1) + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
+
+
+class SemiSyntheticGenerator:
+
+    def __init__(self, *, split=False, test_size=.5, random_state=None):
+        self.split = split
+        self.test_size = test_size
+        self.random_state = random_state
+
+    def fit(self, W, D, Z, X, Y):
+
+        if self.split:
+            train, test = train_test_split(np.arange(D.shape[0]),
+                                           test_size=self.test_size,
+                                           shuffle=True,
+                                           random_state=self.random_state,
+                                           stratify=D)
+        else:
+            train, test = np.arange(D.shape[0]), np.arange(D.shape[0])
+
+        Wtrain = W[train] if W is not None else None
+        _, Zres, Xres, _, *_ = residualizeW(Wtrain, D[train], Z[train], X[train], Y[train], semi=True)
+
+        # The original covariance is U @ diag(S) @ Vh
+        U, S, Vh = scipy.linalg.svd(Zres.T @ Xres / Zres.shape[0], full_matrices=False)
+        # so the columnns of U are the column eigenvectors and the rows of Vh are the
+        # row eigenvectors. Hence, uz = U[:, 0] and vx = Vh[0, :]
+        self.uz_ = U[:, 0]
+        self.vx_ = Vh[0, :]
+        self.s0_ = S[0]
+
+        if W is not None:
+            if self.split:
+                self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
+                                                     W, D,
+                                                     cv=StratifiedKFold(5, shuffle=True, random_state=123),
+                                                     method='predict_proba')[:, 1]
+            else:
+                lg = LogisticRegressionCV(random_state=self.random_state)
+                self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+        else:
+            self.propensity_ = np.mean(D[train]) * np.ones(len(test))
+
+        self.n_ = len(test)
+        self.W_ = W[test] if W is not None else None
+        self.D_ = D[test]
+        self.Z_ = Z[test]
+        self.X_ = X[test]
+        self.Y_ = Y[test]
+        return self
+
+    def sample(self, nsamples, a, b, c, e, f, g, *, sm=2.0, sy=1.0, replace=True):
+        if replace is False:
+            assert nsamples <= self.n_, "`nsamples` should be less than train samples if replace is False"
+        inds = np.random.choice(self.n_, size=nsamples, replace=replace)
+        Wtilde = self.W_[inds] if self.W_ is not None else None
+        Dtilde = np.random.binomial(1, self.propensity_[inds])
+        Mtilde = a * Dtilde.flatten() + sm * np.random.normal(0, 1, (nsamples,))
+        Ztilde = self.Z_[inds] + e * np.sqrt(np.abs(self.s0_)) * Mtilde.reshape(-1, 1) * self.uz_.reshape(1, -1)
+        Xtilde = self.X_[inds] + f * np.sqrt(np.abs(self.s0_)) * Mtilde.reshape(-1, 1) * self.vx_.reshape(1, -1)
+        Ytilde = b * Mtilde + c * Dtilde + g * Xtilde[:, 0] + sy * np.random.normal(0, 1, (nsamples,))
+        return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde

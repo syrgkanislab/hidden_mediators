@@ -80,6 +80,44 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     return W, D, M, Z, X, Y
 
 
+def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
+    ''' Controls are generated but are irrelevant to the rest
+    of the data. We now also have mediation paths:
+        D -> Mp -> X
+        Z -> Mpp -> Y
+    Such paths violate the assumptions required for the method to work. The
+    mediator Mp can trigger a violation of the dual test, and the mediator Mpp
+    can trigger a violation of the primal test.
+
+    n: number of samples
+    pw: dimension of controls
+    pz: dimension of treatment proxies ("instruments")
+    px: dimension of outcome proxies ("treatments")
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
+    '''
+    W = np.random.normal(0, 1, size=(n, pw))
+    D = np.random.binomial(1, .5 * np.ones(n,))
+    M = a * D + sm * np.random.normal(0, 1, (n,))
+    Mp = a * D + sm * np.random.normal(0, 1, (n,))
+
+    Z = np.zeros((n, pz))
+    Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
+
+    X = np.zeros((n, px))
+    X[:, 0] = f * M + sx * np.random.normal(0, 1, (n))
+    X[:, 1:] = f * Mp.reshape(-1, 1)
+
+    Mpp = Z[:, 0] + sm * np.random.normal(0, 1, (n,))
+    Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    return W, D, M, Z, X, Y
+
+
 class SemiSyntheticGenerator:
 
     def __init__(self, *, split=False, test_size=.5, random_state=None):
@@ -136,7 +174,7 @@ class SemiSyntheticGenerator:
         Wtilde = self.W_[inds] if self.W_ is not None else None
         Dtilde = np.random.binomial(1, self.propensity_[inds])
         Mtilde = a * Dtilde.flatten() + sm * np.random.normal(0, 1, (nsamples,))
-        Ztilde = self.Z_[inds] + e * np.sqrt(np.abs(self.s0_)) * Mtilde.reshape(-1, 1) * self.uz_.reshape(1, -1)
-        Xtilde = self.X_[inds] + f * np.sqrt(np.abs(self.s0_)) * Mtilde.reshape(-1, 1) * self.vx_.reshape(1, -1)
+        Ztilde = self.Z_[inds] + e * self.s0_ * Mtilde.reshape(-1, 1) * self.uz_.reshape(1, -1)
+        Xtilde = self.X_[inds] + f * Mtilde.reshape(-1, 1) * self.vx_.reshape(1, -1)
         Ytilde = b * Mtilde + c * Dtilde + g * Xtilde[:, 0] + sy * np.random.normal(0, 1, (nsamples,))
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde

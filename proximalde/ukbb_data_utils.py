@@ -1,27 +1,7 @@
 import json
 import numpy as np
 import pandas as pd
-from scipy.stats import t
 
-def get_cov(x, y, get_pvals=False):
-    xc = x - np.mean(x, axis=0)
-    yc = y - np.mean(y, axis=0)
-    cov = np.dot(xc.T, yc) / (xc.shape[0] - 1)
-    
-    if get_pvals:
-        dx, dy = xc.shape[1], yc.shape[1]
-        std_x = np.std(xc, axis=0, ddof=1)
-        std_y = np.std(yc, axis=0, ddof=1)
-        corr_matrix = cov / np.outer(std_x, std_y)
-        
-        dof = xc.shape[0] - 2
-        t_stat = corr_matrix * np.sqrt(dof / (1 - corr_matrix**2))
-        pvals = 2 * t.sf(np.abs(t_stat), dof)
-        pvals[np.isnan(pvals)] = 1 #replace NaNs
-        
-        return cov, pvals, .05 / (dx * dy)
-    else:
-        return cov
     
 def get_coding_dict(fids):
     coding_dir = '/oak/stanford/groups/rbaltman/hmccann/codings_2022/'
@@ -96,7 +76,7 @@ def _load_ukbb_data(fname: str, norm: str = 'min_max'):
     
     return data, feats
     
-def _load_ukbb_W(D_label: str, norm: str):
+def _load_ukbb_W(D_label: str, norm: str, W_type: str = ''):
     """
     
     Loads the confounder / sociodemographic data and feats.
@@ -105,23 +85,26 @@ def _load_ukbb_W(D_label: str, norm: str):
         
     """      
     assert norm == 'min_max'
-    W, W_feats = _load_ukbb_data(fname = 'dem')
+    if W_type != '':
+        print(f"Loading {W_type} W!")
+        W_type = '_' + W_type
+    W, W_feats = _load_ukbb_data(fname = f'dem{W_type}')
 
-    all_D_data = np.load(f'{UKBB_DATA_DIR}/potD_data.npy') #already min_max normalized
-    all_D_feats = np.load(f'{UKBB_DATA_DIR}/potD_feats.npy')
+    all_D_data = np.load(f'{UKBB_DATA_DIR}/potD_data{W_type}.npy') #already min_max normalized
+    all_D_feats = np.load(f'{UKBB_DATA_DIR}/potD_feats{W_type}.npy')
     
     
-    Dlabel_to_fid = {'Female':31, 'Black':21000, 
-                     'Obese': 21002, 'Asian': 21000, 
-                     'White': 21000, 'Low_inc': 738, 
-                     'On_dis': 6146, 'No_uni': 6138, 
-                     'No_priv_insr': 4674} #fid is the ID # of a feature in UKBB
-    keep_W_idx = [int(f.split('.')[1])!=Dlabel_to_fid[D_label] for f in all_D_feats]
+    Dlabel_to_fid = {'Female':[31], 'Black':[21000], 
+                     'Obese': [21002], 'Asian': [21000], 
+                     'White': [21000], 'Low_inc': [738, 6138, 6146, 4674], 
+                     'On_dis': [6146], 'No_uni': [6138], 
+                     'No_priv_insr': [4674]} #fid is the ID # of a feature in UKBB
+    keep_W_idx = [int(f.split('.')[1]) not in Dlabel_to_fid[D_label] for f in all_D_feats]
     W = np.concatenate([W, all_D_data[:,keep_W_idx]], axis=1)
     W_feats = np.concatenate([W_feats, all_D_feats[keep_W_idx]])
     return W, W_feats
 
-def load_ukbb_data(D_label: str, Y_label: str, norm: str = 'min_max'):
+def load_ukbb_data(D_label: str, Y_label: str, norm: str = 'min_max', W: str= ''):
     """
     
     Loads all UK Biobank data.
@@ -139,7 +122,7 @@ def load_ukbb_data(D_label: str, Y_label: str, norm: str = 'min_max'):
 
     Z, Z_feats = _load_ukbb_data(fname = 'srMntSlp', norm = norm)
     X, X_feats = _load_ukbb_data(fname = 'biomMed', norm = norm)
-    W, W_feats = _load_ukbb_W(D_label, norm = norm)
+    W, W_feats = _load_ukbb_W(D_label, norm = norm, W_type=W)
 
     D_df = pd.read_csv(UKBB_DATA_DIR + 'updated_sa_df_pp.csv')
     D = D_df[D_label].to_numpy()     

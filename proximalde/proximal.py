@@ -540,7 +540,7 @@ class ProximalDE(BaseEstimator):
         if Xres_idx is not None:
             Xres = Xres[:,Xres_idx]
             print(f"New shape: {Xres.shape}")
-            
+
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0

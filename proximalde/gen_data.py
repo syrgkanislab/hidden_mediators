@@ -27,7 +27,6 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     Y = b * M + c * D + g * X[:, 0] + sy * (W[:, 0] + np.random.normal(0, 1, n))
     return W, D, M, Z, X, Y
 
-
 def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data
@@ -51,7 +50,31 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
     Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
+                           
+def gen_multi_data(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
+    ''' Now the mediator is multi-dimensional (takes pm
+    non-zero discrete values and zero).
 
+    n: number of samples
+    pw: dimension of controls
+    pz: dimension of treatment proxies ("instruments")
+    px: dimension of outcome proxies ("treatments")
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
+    '''
+    W = np.random.normal(0, 1, size=(n, pw))
+    D = np.random.binomial(1, scipy.special.expit(2 * np.mean(W[:,1:], axis=1)))
+    M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1))) + np.random.binomial(1, scipy.special.expit(2 * W[:,0]))
+    M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
+    Z = M @ E + d * D.reshape(-1, 1) + sz * (np.random.normal(0, 1, (n, pz)) + np.mean(W,axis=1)[:,None])
+    X = M @ F + sx * (np.mean(W,axis=1)[:,None] + np.random.normal(0, 1, (n, px)))
+    Y = b * np.mean(M, axis=1) + c * D + g * np.mean(X, axis=1) + sy * (np.random.normal(0, 1, n) + np.mean(W[:,1:],axis=1))
+    return W, D, M, Z, X, Y
 
 def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
     ''' Controls are generated but are irrelevant to the rest
@@ -80,7 +103,7 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     return W, D, M, Z, X, Y
 
 
-def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
+def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1, dx_path=True, zy_path=True):
     ''' Controls are generated but are irrelevant to the rest
     of the data. We now also have mediation paths:
         D -> Mp -> X
@@ -105,18 +128,67 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=
     D = np.random.binomial(1, .5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Mp = a * D + sm * np.random.normal(0, 1, (n,))
+        
+    Z = np.zeros((n, pz))
+    Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
 
+    if dx_path:
+        X = np.zeros((n, px))
+        X[:, 0] = f * M + sx * np.random.normal(0, 1, (n))
+        X[:, 1:] = f * Mp.reshape(-1, 1)
+    else:
+        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    
+    Mpp = Z[:, 0] + sm * np.random.normal(0, 1, (n,))
+    if zy_path:
+        Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    else:
+        Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    return W, D, M, Z, X, Y
+
+
+def gen_data_with_mediator_violations2(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1, dx_path=True, zy_path=True):
+    ''' Controls are generated but are irrelevant to the rest
+    of the data. We now also have mediation paths:
+        D -> Mp -> X
+        Z -> Mpp -> Y
+    Such paths violate the assumptions required for the method to work. The
+    mediator Mp can trigger a violation of the dual test, and the mediator Mpp
+    can trigger a violation of the primal test.
+
+    n: number of samples
+    pw: dimension of controls
+    pz: dimension of treatment proxies ("instruments")
+    px: dimension of outcome proxies ("treatments")
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
+    '''
+    pm = 1
+    W = np.random.normal(0, 1, size=(n, pw))
+    D = np.random.binomial(1, .5 * np.ones(n,))
+    M = a * D + sm * np.random.normal(0, 1, (n, pm))
+    if dx_path:
+        Mp = a * D + sm * np.random.normal(0, 1, (n, pm))
+    else:
+        Mp = 0
+        
     Z = np.zeros((n, pz))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
 
     X = np.zeros((n, px))
     X[:, 0] = f * M + sx * np.random.normal(0, 1, (n))
     X[:, 1:] = f * Mp.reshape(-1, 1)
-
-    Mpp = Z[:, 0] + sm * np.random.normal(0, 1, (n,))
+    if zy_path:
+        Mpp = Z[:, 0] + sm * np.random.normal(0, 1, (n,))
+    else:
+        Mpp = 0
     Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
-
 
 class SemiSyntheticGenerator:
 

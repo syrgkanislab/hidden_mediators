@@ -5,7 +5,6 @@ from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv, train_test_split
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
-import warnings
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
 import scipy.linalg
@@ -13,7 +12,7 @@ from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
-from .utilities import _check_input
+from .utilities import _check_input, svd_critical_value
 import pandas as pd 
 
 def load_or_fit_res(X, Y, fname, modelcv, model, splits, semi, multitask, n_jobs, verbose):
@@ -775,36 +774,7 @@ class ProximalDE(BaseEstimator):
         if not calculate_critical:
             return S
 
-        # the line below creates a matrix of (n, px * pz), which could be quite large
-        # we need this matrix to calculate the "covariance" of the entries of the covariance
-        # matrix En[X Z'], whose eigenvalues we then want to compute.
-        n, pz = Z.shape
-        px = X.shape[1]
-
-        # if data too large, we do a monte carlo approximation of the eigenvalues
-        # though in the end we divide these eigenvalues appropriately by the original
-        # size n
-        if n * px * pz > 1e9:
-            subset = np.random.choice(n, size=int(1e9 // (px * pz)), replace=False)
-            Z, X = Z[subset], X[subset]
-            warnings.warn("Due to large sample size and proxy dimension, we performed "
-                          "monte-carlo approximation of critical value using "
-                          f"random subset of n={len(subset)} samples and then re-scaled "
-                          "appropriately to account for the larger original sample size.")
-
-        cZX = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
-        cZX = cZX - cZX.mean(axis=0, keepdims=True)
-        cZXcov = cZX.T @ cZX / cZX.shape[0]
-
-        # here we compute eigenvalues of a symmetric (px * pz, px * pz) matrix
-        # this can also be a bit slow. We scale by the original size n, not the
-        # potentially subsampled size.
-        eigs = scipy.linalg.eigvalsh(cZXcov / n)
-
-        # calculate the critical value via monte carlo simulation of the percentile
-        # of the weighted sum of independent chi-square distributed variables
-        samples = np.random.chisquare(df=1, size=(mc_samples, len(eigs))) @ eigs
-        critical = np.sqrt(np.percentile(samples, (1 - alpha) * 100))
+        critical = svd_critical_value(Z, X, alpha=alpha, mc_samples=mc_samples)
 
         return S, critical
 

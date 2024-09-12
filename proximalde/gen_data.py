@@ -138,14 +138,14 @@ class SemiSyntheticGenerator:
                                            stratify=D)
         else:
             train, test = np.arange(D.shape[0]), np.arange(D.shape[0])
-        
+
         # The original covariance is U @ diag(S) @ Vh
         U, S, Vh = scipy.linalg.svd(covariance(Zres[train], Xres[train]), full_matrices=False)
         # We find the statistically no-zero singular values and corresponding sub-spaces
         critical = svd_critical_value(Zres[train], Xres[train])
-        filter = S > critical
         G = U[:, S > critical]
         F = Vh[S > critical, :].T
+
         # Now we can imagine that roughly we have the structural equation
         #   Z = G M + epsilon_Z
         #   X = F M + epsilon_X
@@ -174,7 +174,7 @@ class SemiSyntheticGenerator:
         # but preserving more of the row data.
         projZ = np.eye(Z.shape[1]) - G @ scipy.linalg.pinvh(G.T @ G) @ G.T
         projX = np.eye(X.shape[1]) - F @ scipy.linalg.pinvh(F.T @ F) @ F.T
-        
+
         self.Zepsilon_ = Z[test] @ projZ.T
         self.Xepsilon_ = X[test] @ projX.T
 
@@ -220,15 +220,15 @@ class SemiSyntheticGenerator:
             baseX, baseZ, baseY = 0.0, 0.0, 0.0
 
         Dtilde = np.random.binomial(1, self.propensity_[inds])
-        
+
         pm = len(self.s_)
         Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
-        
+
         indsZ = np.random.choice(self.n_, size=nsamples, replace=replace)
         Ztilde = baseZ + Mtilde @ self.G_.T + (self.Z_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
         indsX = np.random.choice(self.n_, size=nsamples, replace=replace)
         Xtilde = baseX + Mtilde @ self.F_.T + (self.X_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
-        
+
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
         Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Y_[indsY]
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde

@@ -56,9 +56,9 @@ def svd_critical_value(Z, X, *, alpha=0.05, mc_samples=1000):
         subset = np.random.choice(n, size=int(1e9 // (px * pz)), replace=False)
         Z, X = Z[subset], X[subset]
         warnings.warn("Due to large sample size and proxy dimension, we performed "
-                        "monte-carlo approximation of critical value using "
-                        f"random subset of n={len(subset)} samples and then re-scaled "
-                        "appropriately to account for the larger original sample size.")
+                      "monte-carlo approximation of critical value using "
+                      f"random subset of n={len(subset)} samples and then re-scaled "
+                      "appropriately to account for the larger original sample size.")
 
     cZX = (Z.reshape(Z.shape + (1,)) * X.reshape(X.shape + (1,)).transpose((0, 2, 1))).reshape(Z.shape[0], -1)
     cZX = cZX - cZX.mean(axis=0, keepdims=True)

@@ -32,7 +32,6 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     Y = b * M + c * D + g * X[:, 0] + sy * (W[:, 0] + np.random.normal(0, 1, n))
     return W, D, M, Z, X, Y
 
-
 def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     ''' Controls are generated but are irrelevant to the rest
     of the data
@@ -60,7 +59,31 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
     Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
+                           
+def gen_multi_data(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
+    ''' Now the mediator is multi-dimensional (takes pm
+    non-zero discrete values and zero).
 
+    n: number of samples
+    pw: dimension of controls
+    pz: dimension of treatment proxies ("instruments")
+    px: dimension of outcome proxies ("treatments")
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
+    '''
+    W = np.random.normal(0, 1, size=(n, pw))
+    D = np.random.binomial(1, scipy.special.expit(2 * np.mean(W[:,1:], axis=1)))
+    M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1))) + np.random.binomial(1, scipy.special.expit(2 * W[:,0]))
+    M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
+    Z = M @ E + d * D.reshape(-1, 1) + sz * (np.random.normal(0, 1, (n, pz)) + np.mean(W,axis=1)[:,None])
+    X = M @ F + sx * (np.mean(W,axis=1)[:,None] + np.random.normal(0, 1, (n, px)))
+    Y = b * np.mean(M, axis=1) + c * D + g * np.mean(X, axis=1) + sy * (np.random.normal(0, 1, n) + np.mean(W[:,1:],axis=1))
+    return W, D, M, Z, X, Y
 
 def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
     ''' Controls are generated but are irrelevant to the rest
@@ -95,7 +118,8 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
 
 def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
                                       sm=2, sz=1, sx=1, sy=1,
-                                      invalidZinds=[0], invalidXinds=[0]):
+                                      invalidZinds=[0], invalidXinds=[0],
+                                      dx_path=True, zy_path=True):
     ''' Controls are generated but are irrelevant to the rest
     of the data. We now also have mediation paths:
         D -> Mp -> X
@@ -128,16 +152,21 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
     D = np.random.binomial(1, .5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Mp = a * D + sm * np.random.normal(0, 1, (n,))
-
+        
     Z = np.zeros((n, pz))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
 
-    X = np.zeros((n, px))
-    X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
-    X[:, invalidXinds] = f * Mp.reshape(-1, 1)
-
+    if dx_path:
+        X = f * M + sx * np.random.normal(0, 1, (n, px))
+        X[:, invalidXinds] = f * Mp.reshape(-1, 1)
+    else:
+        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    
     Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
-    Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    if zy_path:
+        Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    else:
+        Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
 
 
@@ -242,7 +271,6 @@ class SemiSyntheticGenerator:
             baseX, baseZ, baseY = 0.0, 0.0, 0.0
 
         Dtilde = np.random.binomial(1, self.propensity_[inds])
-
         pm = len(self.s_)
         Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
 
@@ -254,3 +282,4 @@ class SemiSyntheticGenerator:
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
         Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Y_[indsY]
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde
+    

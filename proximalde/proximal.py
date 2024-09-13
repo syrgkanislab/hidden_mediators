@@ -14,14 +14,17 @@ from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input, svd_critical_value
 import pandas as pd
+import xgboost as xgb
 
 
-def residualizeW(W, D, Z, X, Y, *, categorical=True,
-                 cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+def residualizeW(W, D, Z, X, Y, *, categorical=True, res_model='lasso',
+                 cv=5, semi=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
-    and lasso regression models.
+    and lasso or xgb regression models.
     '''
+    assert res_model in ['lasso', 'multi', 'xgb'], f"Residual W model must be of \
+        type ['lasso', 'multi', 'xgb'] but res_model={res_model}"
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
     if D.shape[1] > 1:
@@ -47,25 +50,30 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
         if hasattr(cv, 'random_state'):
             cv.random_state = random_state
 
-        if multitask:
+        if res_model == 'multi':
             model = MultiTaskLasso(random_state=random_state)
             modelcv = MultiTaskLassoCV(random_state=random_state)
-        else:
+        elif res_model == 'lasso':
             model = Lasso(random_state=random_state)
             modelcv = LassoCV(random_state=random_state)
+        else:
+            semi = False
+            model = None # ignored
+            modelcv = xgb.XGBRegressor(random_state=random_state, max_depth=3, 
+                                     early_stopping_rounds=50)
 
         splits = list(cv.split(W, D))
         print("Residualizing D...") if verbose > 0 else None
-        Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
+        Dres = D - fit_predict(W, D, modelcv, model, splits, semi, res_model == 'multi',
                                n_jobs, verbose)
         print("Residualizing Z...") if verbose > 0 else None
-        Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
+        Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, res_model == 'multi',
                                n_jobs, verbose)
         print("Residualizing X...") if verbose > 0 else None
-        Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
+        Xres = X - fit_predict(W, X, modelcv, model, splits, semi, res_model == 'multi',
                                n_jobs, verbose)
         print("Residualizing Y...") if verbose > 0 else None
-        Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
+        Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, res_model == 'multi',
                                n_jobs, verbose)
 
     #####
@@ -269,7 +277,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
 
 def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
-                           categorical=True, cv=5, semi=True, multitask=False, n_jobs=-1,
+                           categorical=True, cv=5, semi=True, res_model='lasso', n_jobs=-1,
                            verbose=0, random_state=None):
     '''
     dual_type: one of {'Z', 'Q'}
@@ -292,8 +300,8 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting
-        multivariate targets
+    res_model: what model to use for residualizing W, either multitask for 
+        predicting multivariate targets, lasso, or xgb.
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
@@ -309,7 +317,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
         residualizeW(W, D, Z, X, Y,
                      categorical=categorical, cv=cv,
-                     semi=semi, multitask=multitask,
+                     semi=semi, res_model=res_model,
                      n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
@@ -408,8 +416,8 @@ class ProximalDE(BaseEstimator):
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting
-        multivariate targets
+    res_model: what model to use for residualizing W, either multitask for 
+        predicting multivariate targets, lasso, or xgb.
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
@@ -423,7 +431,7 @@ class ProximalDE(BaseEstimator):
                  categorical=True,
                  cv=5,
                  semi=True,
-                 multitask=False,
+                 res_model='lasso',
                  n_jobs=-1,
                  verbose=0,
                  random_state=None):
@@ -434,7 +442,7 @@ class ProximalDE(BaseEstimator):
         self.categorical = categorical
         self.cv = cv
         self.semi = semi
-        self.multitask = multitask
+        self.res_model = res_model
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.random_state = random_state
@@ -476,7 +484,7 @@ class ProximalDE(BaseEstimator):
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
             residualizeW(W, D, Z, X, Y,
                          categorical=self.categorical, cv=self.cv,
-                         semi=self.semi, multitask=self.multitask,
+                         semi=self.semi, res_model=self.res_model,
                          n_jobs=self.n_jobs, verbose=self.verbose,
                          random_state=self.random_state)
 
@@ -510,7 +518,7 @@ class ProximalDE(BaseEstimator):
         self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
-        self.multitask_ = self.multitask
+        self.res_model_ = self.res_model
         self.W_ = W
         self.D_ = D
         self.Z_ = Z
@@ -1119,7 +1127,7 @@ class ProximalDE(BaseEstimator):
                                             categorical=self.categorical_,
                                             cv=self.cv_,
                                             semi=self.semi_,
-                                            multitask=self.multitask_,
+                                            res_model=self.res_model_,
                                             n_jobs=1, verbose=0,
                                             random_state=None)
             for sub in subsamples)

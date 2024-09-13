@@ -3,7 +3,25 @@ from sklearn.base import clone
 from sklearn.model_selection import cross_val_predict
 from joblib import Parallel, delayed
 
+def _cross_val_predict(model, X, Y, cv):
+    """
+    Wrapper around sklearn cross_val_predict to enable running
+    xgb with early stopping, which requires separate arguments 
+    in fit."""
+    if not hasattr(model, 'early_stopping_rounds'):
+        return cross_val_predict(model, X, Y, cv=cv)
+    else:
+        assert type(cv) == list #TODO: add more thorough checks
+        predictions = np.zeros(Y.shape)
 
+        for train_idx, val_idx in cv:
+            X_train, X_val = X[train_idx], X[val_idx]
+            Y_train, Y_val = Y[train_idx], Y[val_idx]
+            model.fit(X_train, Y_train, eval_set=[(X_val, Y_val)], verbose=False)
+            predictions[val_idx] = model.predict(X_val).reshape(Y_val.shape)
+
+        return predictions
+    
 def fit_predict_single(X, Y, modelcv, model, cv, semi):
     ''' Runs a single cross-fit prediction.
 
@@ -18,7 +36,7 @@ def fit_predict_single(X, Y, modelcv, model, cv, semi):
         fitted on all the data and then the attribute `alpha_` of
         the fitted object will be used and will be assigned to the
         estimator object model, which will then be used to
-        cross_val_predict the outcomes. When `semi=True` the object
+        cross_val_predict the outcomes. When `semi=False` the object
         needs to have attribute `alpha_` after fit.
     model : obj or None
         An estimator object. When `semi=True`, this object will be
@@ -48,7 +66,7 @@ def fit_predict_single(X, Y, modelcv, model, cv, semi):
         model.alpha = alpha
     else:
         model = clone(modelcv)
-    return cross_val_predict(model, X, Y, cv=cv).reshape(Y.shape)
+    return _cross_val_predict(model, X, Y, cv=cv).reshape(Y.shape)
 
 
 def fit_predict(X, Y, modelcv, model, cv, semi, multitask, n_jobs, verbose):
@@ -93,7 +111,7 @@ def fit_predict(X, Y, modelcv, model, cv, semi, multitask, n_jobs, verbose):
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.
     '''
-    if multitask or (len(Y.shape) == 1):
+    if multitask or (len(Y.squeeze().shape) == 1):
         return fit_predict_single(X, Y, modelcv, model, cv, semi)
     else:
         Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(

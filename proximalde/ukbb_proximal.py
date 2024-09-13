@@ -5,14 +5,18 @@ from sklearn.model_selection import check_cv
 from .crossfit import fit_predict
 from .utilities import _check_input
 from proximalde.proximal import ProximalDE, estimate_nuisances, second_stage, estimate_final
+import xgboost as xgb
 
 
-def _get_ukbb_res_filenames(D_label: str, Y_label: str, save_fname_addn: str = ''):
+def _get_ukbb_res_filenames(D_label: str, Y_label: str, save_fname_addn: str = '',
+                            res_model: str = 'lasso'):
     """
     """
     if D_label != '' and Y_label != '':
         save_path = f'/oak/stanford/groups/rbaltman/karaliu/bias_detection/causal_analysis/data_hm'
 
+        if res_model == 'xgb':
+            save_fname_addn += '_xgb'
         if Y_label in ['endo', 'preg']:
             save_fname_addn+='_FemOnly'
         D_label = D_label.replace('_', '')
@@ -27,16 +31,18 @@ def _get_ukbb_res_filenames(D_label: str, Y_label: str, save_fname_addn: str = '
 
 
 def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn: str = '',
-                 categorical=True,
-                 cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                 categorical=True, res_model='lasso',
+                 cv=5, semi=False, n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
-    and lasso regression models.
+    and lasso or xgb regression models.
 
     UKBB-specific tool that tries to load each residual first before recomputing it. 
     File names are fixed based on D_label, Y_label, and any additional info under
     save_fname_addn.
     '''
+    assert res_model in ['lasso', 'multi', 'xgb'], f"Residual W model must be of \
+        type ['lasso', 'multi', 'xgb'] but res_model={res_model}"
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
     if D.shape[1] > 1:
@@ -62,17 +68,22 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
         if hasattr(cv, 'random_state'):
             cv.random_state = random_state
 
-        if multitask:
+        if res_model == 'multi':
             model = MultiTaskLasso(random_state=random_state)
             modelcv = MultiTaskLassoCV(random_state=random_state)
-        else:
+        elif res_model == 'lasso':
             model = Lasso(random_state=random_state)
             modelcv = LassoCV(random_state=random_state)
+        else:
+            semi = False
+            model = None # ignored
+            modelcv = xgb.XGBRegressor(random_state=random_state, max_depth=3, 
+                                     early_stopping_rounds=50)
 
         splits = list(cv.split(W, D))
-
+        
         # Need file names to save residuals if data is UKBB
-        save_fnames = _get_ukbb_res_filenames(D_label, Y_label, save_fname_addn) 
+        save_fnames = _get_ukbb_res_filenames(D_label, Y_label, save_fname_addn, res_model) 
 
         #####
         # Try loading each residual and confirming metadata aligns before 
@@ -80,24 +91,27 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
         #####
         res_list = []
         for path, data in zip(save_fnames, [Y, D, X, Z]):
-            current_metadata = np.concatenate([W[splits[0]].mean(axis=0),data[splits[0]].mean(axis=0)])
+            current_metadata = np.concatenate([W[splits[0][0]].mean(axis=0), 
+                                               data[splits[0][0]].mean(axis=0)])
             try:
                 saved_metadata = np.load(f'{path}_meta.npy')
                 assert np.all(saved_metadata == current_metadata), "Metadata is not the same"
                 res_data = np.load(f'{path}.npy')
-                assert (data.shape == res_data.shape), f"Loaded residual shape {res.shape} != current shape {data.shape}"
+                assert (data.shape == res_data.shape), \
+                    f"Loaded residual shape {res_data.shape} != current shape {data.shape}"
                 print(f"Loaded residual from {path.split('/')[-1]}...") if verbose > 0 else None
             
             except FileNotFoundError:
                 print(f"Residualizing {path.split('/')[-1]}...") if verbose > 0 else None
-                res_data = data - fit_predict(W, data, modelcv, model, splits, semi, multitask, n_jobs, verbose)
+                res_data = data - fit_predict(W, data, modelcv, model, splits, semi, 
+                                              res_model == 'multi', n_jobs, verbose)
         
                 np.save(f'{path}_meta.npy', current_metadata)
                 np.save(f'{path}.npy', res_data)
             
             res_list.append(res_data)
 
-    Dres, Zres, Xres, Yres = res_list
+        Yres, Dres, Xres, Zres = res_list
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)
     #####
@@ -113,7 +127,7 @@ def proximal_direct_effect_ukbb(W, D, Z, X, Y, D_label: str='', Y_label: str='',
                            save_fname_addn: str = '', 
                            dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
-                           categorical=True, cv=5, semi=True, multitask=False, n_jobs=-1,
+                           categorical=True, cv=5, semi=True, res_model='lasso', n_jobs=-1,
                            verbose=0, random_state=None):
     '''
     As in proximal.py but using residualizeW_ukbb.
@@ -125,11 +139,11 @@ def proximal_direct_effect_ukbb(W, D, Z, X, Y, D_label: str='', Y_label: str='',
     if Y.shape[1] > 1:
         raise AttributeError("Y should be a scalar outcome")
 
-    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
+    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
         residualizeW_ukbb(W, D, Z, X, Y, D_label, Y_label,
                         save_fname_addn=save_fname_addn,
                         categorical=categorical, cv=cv,
-                        semi=semi, multitask=multitask,
+                        semi=semi, res_model=res_model,
                         n_jobs=n_jobs, verbose=verbose,
                         random_state=random_state)
         
@@ -199,7 +213,7 @@ class ProximalDE_UKBB(ProximalDE):
             residualizeW_ukbb(W, D, Z, X, Y, D_label=D_label, Y_label=Y_label,
                                 save_fname_addn=save_fname_addn,
                                 categorical=self.categorical, cv=self.cv,
-                                semi=self.semi, multitask=self.multitask,
+                                semi=self.semi, res_model=self.res_model,
                                 n_jobs=self.n_jobs, verbose=self.verbose,
                                 random_state=self.random_state)
 
@@ -240,7 +254,7 @@ class ProximalDE_UKBB(ProximalDE):
         self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
-        self.multitask_ = self.multitask
+        self.res_model_ = self.res_model
         self.W_ = W
         self.D_ = D
         self.Z_ = Z

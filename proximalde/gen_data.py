@@ -303,3 +303,4 @@ class SemiSyntheticGenerator:
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
         Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Y_[indsY]
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde
+    

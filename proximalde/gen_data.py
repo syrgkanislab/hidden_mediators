@@ -19,6 +19,10 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     e : strength of M -> Z edge
     f : strength of M -> X edge
     g : strength of X -> Y edge
+    sm : scale of noise of M
+    sz : scale of noise of Z
+    sx : scale of noise of X
+    sy : scale of noise of Y
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, scipy.special.expit(2 * W[:, 0]))
@@ -44,6 +48,10 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     e : strength of M -> Z edge
     f : strength of M -> X edge
     g : strength of X -> Y edge
+    sm : scale of noise of M
+    sz : scale of noise of Z
+    sx : scale of noise of X
+    sy : scale of noise of Y
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
@@ -70,6 +78,10 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     e : strength of M -> Z edge
     f : strength of M -> X edge
     g : strength of X -> Y edge
+    sz : scale of noise of Z
+    sx : scale of noise of X
+    sy : scale of noise of Y
+    pm : number of non-zero discrete values that the mediator takes
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
@@ -81,7 +93,9 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
     return W, D, M, Z, X, Y
 
 
-def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
+def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
+                                      sm=2, sz=1, sx=1, sy=1,
+                                      invalidZinds=[0], invalidXinds=[0]):
     ''' Controls are generated but are irrelevant to the rest
     of the data. We now also have mediation paths:
         D -> Mp -> X
@@ -101,6 +115,14 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=
     e : strength of M -> Z edge
     f : strength of M -> X edge
     g : strength of X -> Y edge
+    sm : scale of noise of M
+    sz : scale of noise of Z
+    sx : scale of noise of X
+    sy : scale of noise of Y
+    invalidZinds : list
+        which Z's are problematic
+    invalidXinds : list
+        which X's are problematic
     '''
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, .5 * np.ones(n,))
@@ -111,10 +133,10 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
 
     X = np.zeros((n, px))
-    X[:, 0] = f * M + sx * np.random.normal(0, 1, (n))
-    X[:, 1:] = f * Mp.reshape(-1, 1)
+    X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    X[:, invalidXinds] = f * Mp.reshape(-1, 1)
 
-    Mpp = Z[:, 0] + sm * np.random.normal(0, 1, (n,))
+    Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
     Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
 

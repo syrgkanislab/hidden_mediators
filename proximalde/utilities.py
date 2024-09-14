@@ -1,7 +1,9 @@
 import numpy as np
 import warnings
 import scipy.linalg
-from sklearn.base import BaseEstimator, clone
+from sklearn.base import BaseEstimator, clone, ClassifierMixin, RegressorMixin
+from xgboost import XGBRegressor, XGBClassifier
+from sklearn.model_selection import train_test_split
 
 
 def _check_input(*args):
@@ -109,3 +111,45 @@ class CVWrapper(BaseEstimator):
 
     def predict_proba(self, X):
         return self.modelcv_.predict_proba(X)
+
+
+class XGBRegressorWrapper(BaseEstimator, RegressorMixin):
+
+    def __init__(self, *, max_depth=3, early_stopping_rounds=50, learning_rate=.1):
+        self.max_depth = max_depth
+        self.early_stopping_rounds = early_stopping_rounds
+        self.learning_rate = learning_rate
+
+    def fit(self, X, y):
+        Xtrain, Xval, ytrain, yval = train_test_split(X, y, test_size=.2)
+        self.model_ = XGBRegressor(max_depth=self.max_depth,
+                                   early_stopping_rounds=self.early_stopping_rounds,
+                                   learning_rate=self.learning_rate, random_state=123)
+        self.model_.fit(Xtrain, ytrain, eval_set=[(Xval, yval)], verbose=False)
+        return self
+
+    def predict(self, X):
+        return self.model_.predict(X)
+
+
+class XGBClassifierWrapper(BaseEstimator, ClassifierMixin):
+
+    def __init__(self, *, max_depth=3, early_stopping_rounds=50, learning_rate=.1):
+        self.max_depth = max_depth
+        self.early_stopping_rounds = early_stopping_rounds
+        self.learning_rate = learning_rate
+
+    def fit(self, X, y):
+        Xtrain, Xval, ytrain, yval = train_test_split(X, y, test_size=.2)
+        self.model_ = XGBClassifier(max_depth=self.max_depth,
+                                   early_stopping_rounds=self.early_stopping_rounds,
+                                   learning_rate=self.learning_rate, eval_metric='logloss', random_state=123)
+        self.model_.fit(Xtrain, ytrain, eval_set=[(Xval, yval)], verbose=False)
+        self.classes_ = self.model_.classes_
+        return self
+
+    def predict(self, X):
+        return self.model_.predict(X)
+
+    def predict_proba(self, X):
+        return self.model_.predict_proba(X)

@@ -1,7 +1,7 @@
 import numpy as np
 from sklearn.linear_model import LassoCV, Lasso, LogisticRegressionCV, LogisticRegression
 from sklearn.linear_model import Ridge, RidgeCV
-from sklearn.model_selection import check_cv, train_test_split
+from sklearn.model_selection import check_cv, train_test_split, GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
@@ -12,12 +12,12 @@ from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
-from .utilities import _check_input, svd_critical_value, CVWrapper
+from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
 
 
 def residualizeW(W, D, Z, X, Y, *,
-                 model_regression='auto',
-                 model_classification='auto',
+                 model_regression='linear',
+                 model_classification='linear',
                  binary_D=True,
                  binary_Z=[],
                  binary_X=[],
@@ -53,11 +53,17 @@ def residualizeW(W, D, Z, X, Y, *,
         if hasattr(cv, 'random_state'):
             cv.random_state = random_state
 
-        if model_regression == 'auto':
+        if model_regression == 'linear':
             model_regression = CVWrapper(modelcv=LassoCV(random_state=random_state),
                                          model=Lasso(random_state=random_state),
                                          params=['alpha'])
-        if model_classification == 'auto':
+        elif model_regression == 'xgb':
+            model_regression = GridSearchCV(XGBRegressorWrapper(),
+                                            {'learning_rate': [.01, .1, 1]},
+                                            scoring='neg_root_mean_squared_error')
+        # otherwise model_regression is assumed to be an estimation object
+
+        if model_classification == 'linear':
             model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='liblinear',
                                                                           scoring='neg_log_loss',
                                                                           intercept_scaling=100,
@@ -68,6 +74,11 @@ def residualizeW(W, D, Z, X, Y, *,
                                                                       tol=1e-6,
                                                                       random_state=random_state),
                                              params=['C'])
+        elif model_classification == 'xgb':
+            model_classification = GridSearchCV(XGBClassifierWrapper(),
+                                                {'learning_rate': [.01, .1, 1]},
+                                                scoring='neg_log_loss')
+        # otherwise model_classification is assumed to be an estimation object
 
         splits = list(cv.split(W, D))
 
@@ -299,8 +310,8 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
 
 
 def proximal_direct_effect(W, D, Z, X, Y, *,
-                           model_regression='auto',
-                           model_classification='auto',
+                           model_regression='linear',
+                           model_classification='linear',
                            binary_D=True, binary_Z=[], binary_X=[], binary_Y=False,
                            dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
@@ -428,6 +439,20 @@ class ProximalDE(BaseEstimator):
 
     Parameters
     ----------
+    model_regression : (BaseEstimator, RegressorMixin) object or one of {'linear', 'xgb'}
+        If `linear` then a LassoCV model is used. If `xgb` then an xgboost regressor
+        is used with cross-validated learning rate and earlystopping. If an object
+        is passed, then it should inherit the functionality of an sklearn BaseEstimator
+        and RegressorMixin and if `semi=True` then this object should also have
+        attribute `best_estimator_` after being fitted, that contains an instance of the object
+        with the best chosen hyperaparameters.
+    model_classification : : (BaseEstimator, ClassifierMixin) object or one of {'linear', 'xgb'}
+        If `linear` then a LogisticRegressionCV(penalty='l1') model is used.
+        If `xgb` then an xgboost classifier is used with cross-validated learning rate
+        and earlystopping. If an object is passed, then it should inherit the functionality
+        of an sklearn BaseEstimator and ClassifierMixin and if `semi=True` then this object
+        should also have attribute `best_estimator_` after being fitted, that contains an
+        instance of the object with the best chosen hyperaparameters.            
     binary_D : bool, optional (default=True)
         Whether D is binary
     binary_Z : ArrayLike[bool], optional (default=[]),
@@ -463,8 +488,8 @@ class ProximalDE(BaseEstimator):
     '''
 
     def __init__(self, *,
-                 model_regression='auto',
-                 model_classification='auto',
+                 model_regression='linear',
+                 model_classification='linear',
                  binary_D=True,
                  binary_Z=[],
                  binary_X=[],

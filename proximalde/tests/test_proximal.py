@@ -133,7 +133,12 @@ def test_residualized_w_equivalency():
     # checking the binary first
     for T, resT in [(D.reshape(-1, 1), Dres), (Z[:, [1]], Zres[:, [1]]),
                     (X[:, [2]], Xres[:, [2]]), (Y.reshape(-1, 1), Yres)]:
-        res = T - np.stack([cross_val_predict(LogisticRegressionCV(random_state=123),
+        res = T - np.stack([cross_val_predict(LogisticRegressionCV(penalty='l1',
+                                                                   solver='liblinear',
+                                                                   scoring='neg_log_loss',
+                                                                   intercept_scaling=100,
+                                                                   tol=1e-6,
+                                                                   random_state=123),
                                               W, T[:, i], cv=splits, method='predict_proba')[:, 1]
                             for i in range(T.shape[1])], axis=-1)
         assert np.allclose(res, resT)
@@ -1051,11 +1056,14 @@ def test_dual_violation_z():
 def test_accuracy_no_violations():
     ''' Test that we recover truth when assumptions hold
     '''
-    np.random.seed(123)
+    np.random.seed(1234)
     for n in [10000, 100000]:
         for pz, px, pass_w in [(3, 2, True), (2, 3, False)]:
-            for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'),
-                                          ('Q', '2sls'), ('Q', 'adv')]:
+            for dual_type, ivreg_type,\
+                model_regression, model_classification in [('Z', '2sls', 'linear', 'linear'),
+                                                           ('Z', 'adv', 'xgb', 'xgb'),
+                                                           ('Q', '2sls', 'linear', 'linear'),
+                                                           ('Q', 'adv', 'linear', 'linear')]:
                 for _ in range(5):
                     print(n, pz, px, dual_type, ivreg_type)
                     pw = 1
@@ -1075,11 +1083,15 @@ def test_accuracy_no_violations():
                                                             sm=sm, sz=sz, sx=sx, sy=sy)
 
                     if pass_w:
-                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
+                        est = ProximalDE(model_regression=model_regression,
+                                         model_classification=model_classification,
+                                         dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
                                          n_jobs=-1, random_state=3, verbose=0)
                         est.fit(W, D, Z, X, Y)
                     else:
-                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type,
+                        est = ProximalDE(model_regression=model_regression,
+                                         model_classification=model_classification,
+                                         dual_type=dual_type, ivreg_type=ivreg_type,
                                          alpha_multipliers=np.array([1.0, 1.0 * n]),
                                          alpha_exponent=0.39,
                                          cv=3, semi=True,

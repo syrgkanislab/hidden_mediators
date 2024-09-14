@@ -1,6 +1,5 @@
 import numpy as np
-from sklearn.linear_model import LassoCV, Lasso
-from sklearn.linear_model import MultiTaskLassoCV, MultiTaskLasso
+from sklearn.linear_model import LassoCV, Lasso, LogisticRegressionCV, LogisticRegression
 from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv, train_test_split
 from sklearn.base import BaseEstimator, clone
@@ -12,11 +11,18 @@ from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
-from .utilities import _check_input, svd_critical_value
+from .utilities import _check_input, svd_critical_value, CVWrapper
 
 
-def residualizeW(W, D, Z, X, Y, *, categorical=True,
-                 cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+def residualizeW(W, D, Z, X, Y, *,
+                 model_regression='auto',
+                 model_classification='auto',
+                 binary_D=True,
+                 binary_Z=[],
+                 binary_X=[],
+                 binary_Y=False,
+                 cv=5, semi=False,
+                 n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
     and lasso regression models.
@@ -40,32 +46,46 @@ def residualizeW(W, D, Z, X, Y, *, categorical=True,
         # (or semi-cross-fitting) and a Lasso model with regularization
         # chosen via cross-validation
         #####
-        cv = check_cv(cv, y=D, classifier=categorical)
+        cv = check_cv(cv, y=D, classifier=binary_D)
         if hasattr(cv, 'shuffle'):
             cv.shuffle = True
         if hasattr(cv, 'random_state'):
             cv.random_state = random_state
 
-        if multitask:
-            model = MultiTaskLasso(random_state=random_state)
-            modelcv = MultiTaskLassoCV(random_state=random_state)
-        else:
-            model = Lasso(random_state=random_state)
-            modelcv = LassoCV(random_state=random_state)
+        if model_regression == 'auto':
+            model_regression = CVWrapper(modelcv=LassoCV(random_state=random_state),
+                                         model=Lasso(random_state=random_state),
+                                         params=['alpha'])
+        if model_classification == 'auto':
+            model_classification = CVWrapper(modelcv=LogisticRegressionCV(random_state=random_state),
+                                             model=LogisticRegression(random_state=random_state),
+                                             params=['C'])
 
         splits = list(cv.split(W, D))
+
         print("Residualizing D...") if verbose > 0 else None
-        Dres = D - fit_predict(W, D, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
+        Dres = D - fit_predict(W, D, [binary_D],
+                               clone(model_regression), clone(model_classification),
+                               splits, semi, n_jobs, verbose)
+
         print("Residualizing Z...") if verbose > 0 else None
-        Zres = Z - fit_predict(W, Z, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
+        isbinary_Z = np.array([False] * Z.shape[1])
+        isbinary_Z[binary_Z] = True
+        Zres = Z - fit_predict(W, Z, isbinary_Z,
+                               clone(model_regression), clone(model_classification),
+                               splits, semi, n_jobs, verbose)
+
         print("Residualizing X...") if verbose > 0 else None
-        Xres = X - fit_predict(W, X, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
+        isbinary_X = np.array([False] * X.shape[1])
+        isbinary_X[binary_X] = True
+        Xres = X - fit_predict(W, X, isbinary_X,
+                               clone(model_regression), clone(model_classification),
+                               splits, semi, n_jobs, verbose)
+
         print("Residualizing Y...") if verbose > 0 else None
-        Yres = Y - fit_predict(W, Y, modelcv, model, splits, semi, multitask,
-                               n_jobs, verbose)
+        Yres = Y - fit_predict(W, Y, [binary_Y],
+                               clone(model_regression), clone(model_classification),
+                               splits, semi, n_jobs, verbose)
 
     #####
     # Measuring R^2 perfomrance of residualization models (nuisance models)
@@ -121,11 +141,13 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     DXres = np.column_stack([Dres, Xres])
     alphas = alpha_multipliers * nobs**(alpha_exponent)
     if ivreg_type == '2sls':
-        ivreg_eta = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                          alphas=alphas),
-                                    model_first=Ridge(fit_intercept=False),
+        ivreg_eta = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False,
+                                                                          alphas=alphas),
+                                                          model=Ridge(fit_intercept=False),
+                                                          params=['alpha']),
                                     model_final=RidgeCV(fit_intercept=False,
                                                         alphas=alphas),
+                                    semi=True,
                                     cv=cv,
                                     n_jobs=n_jobs,
                                     verbose=verbose,
@@ -169,11 +191,13 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         alphas = alpha_multipliers * nobs**(alpha_exponent)
         dualIV = Zres
         if ivreg_type == '2sls':
-            ivreg_gamma = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False,
-                                                                alphas=alphas),
-                                          model_first=Ridge(fit_intercept=False),
+            ivreg_gamma = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False,
+                                                                                alphas=alphas),
+                                                                model=Ridge(fit_intercept=False),
+                                                                params=['alpha']),
                                           model_final=RidgeCV(fit_intercept=False,
                                                               alphas=alphas),
+                                          semi=True,
                                           cv=cv,
                                           n_jobs=n_jobs,
                                           verbose=verbose,
@@ -266,11 +290,21 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
         eta, gamma, inf, Dbar, Ybar
 
 
-def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
+def proximal_direct_effect(W, D, Z, X, Y, *,
+                           model_regression='auto',
+                           model_classification='auto',
+                           binary_D=True, binary_Z=[], binary_X=[], binary_Y=False,
+                           dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
-                           categorical=True, cv=5, semi=True, multitask=False, n_jobs=-1,
+                           cv=5, semi=True, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
+    model_regression : model used for all regressions
+    model_classification : model used for all classifications
+    binary_D : whether D is binary
+    binary_Z : list of binary Z's
+    binary_X : list of binary X's
+    binary_Y : whether Y is binary
     dual_type: one of {'Z', 'Q'}
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
@@ -287,12 +321,9 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
     alpha_exponent: float, optional (default=0.3)
         The power of the sample size, with which the regularization weight
         scales, when estimating the nuisance parameters eta and gamma.
-    categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting
-        multivariate targets
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
@@ -307,8 +338,10 @@ def proximal_direct_effect(W, D, Z, X, Y, *, dual_type='Z', ivreg_type='adv',
     # residualize W from all the variables
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
         residualizeW(W, D, Z, X, Y,
-                     categorical=categorical, cv=cv,
-                     semi=semi, multitask=multitask,
+                     model_regression=model_regression,
+                     model_classification=model_classification,
+                     binary_D=binary_D, binary_Z=binary_Z, binary_X=binary_X, binary_Y=binary_Y,
+                     cv=cv, semi=semi,
                      n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
@@ -387,6 +420,14 @@ class ProximalDE(BaseEstimator):
 
     Parameters
     ----------
+    binary_D : bool, optional (default=True)
+        Whether D is binary
+    binary_Z : ArrayLike[bool], optional (default=[]),
+        List of Z's that are binary
+    binary_X : ArrayLike[bool], optional (default=[]),
+        List of X's that are binary
+    binary_Y : bool, optional (default=False)
+        Whether Y is binary
     dual_type: one of {'Z', 'Q'}, optional (default='Z')
         Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
         as the dual IV problem to construt the orthogonal instrument Dbar.
@@ -403,7 +444,6 @@ class ProximalDE(BaseEstimator):
     alpha_exponent: float, optional (default=0.3)
         The power of the sample size, with which the regularization weight
         scales, when estimating the nuisance parameters eta and gamma.
-    categorical: whether D is categorical
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
@@ -415,25 +455,33 @@ class ProximalDE(BaseEstimator):
     '''
 
     def __init__(self, *,
+                 model_regression='auto',
+                 model_classification='auto',
+                 binary_D=True,
+                 binary_Z=[],
+                 binary_X=[],
+                 binary_Y=False,
                  dual_type='Z',
                  ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]),
                  alpha_exponent=0.3,
-                 categorical=True,
                  cv=5,
                  semi=True,
-                 multitask=False,
                  n_jobs=-1,
                  verbose=0,
                  random_state=None):
+        self.model_regression = model_regression
+        self.model_classification = model_classification
+        self.binary_D = binary_D
+        self.binary_Z = binary_Z
+        self.binary_X = binary_X
+        self.binary_Y = binary_Y
         self.dual_type = dual_type
         self.ivreg_type = ivreg_type
         self.alpha_multipliers = alpha_multipliers
         self.alpha_exponent = alpha_exponent
-        self.categorical = categorical
         self.cv = cv
         self.semi = semi
-        self.multitask = multitask
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.random_state = random_state
@@ -474,8 +522,11 @@ class ProximalDE(BaseEstimator):
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
             residualizeW(W, D, Z, X, Y,
-                         categorical=self.categorical, cv=self.cv,
-                         semi=self.semi, multitask=self.multitask,
+                         model_regression=self.model_regression,
+                         model_classification=self.model_classification,
+                         binary_D=self.binary_D, binary_Z=self.binary_Z,
+                         binary_X=self.binary_X, binary_Y=self.binary_Y,
+                         cv=self.cv, semi=self.semi,
                          n_jobs=self.n_jobs, verbose=self.verbose,
                          random_state=self.random_state)
 
@@ -502,14 +553,18 @@ class ProximalDE(BaseEstimator):
         self.pw_ = W.shape[1] if W is not None else 0
         self.pz_ = Z.shape[1]
         self.px_ = X.shape[1]
+        self.model_regression_ = self.model_regression
+        self.model_classification_ = self.model_classification
+        self.binary_D_ = self.binary_D
+        self.binary_Z_ = self.binary_Z
+        self.binary_X_ = self.binary_X
+        self.binary_Y_ = self.binary_Y
         self.dual_type_ = self.dual_type
         self.ivreg_type_ = self.ivreg_type
         self.alpha_multipliers_ = self.alpha_multipliers
         self.alpha_exponent_ = self.alpha_exponent
-        self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
-        self.multitask_ = self.multitask
         self.W_ = W
         self.D_ = D
         self.Z_ = Z
@@ -705,6 +760,7 @@ class ProximalDE(BaseEstimator):
             which we can confidently say that the corresponding singular value
             of the population covariance matrix is non-zero.
         '''
+        self._check_is_fitted()
         _, S, _ = np.linalg.svd(self.Zres_.T @ self.Xres_ / self.nobs_)
         Z = self.Zres_
         X = self.Xres_
@@ -741,6 +797,7 @@ class ProximalDE(BaseEstimator):
             The critical value above which we can reject the null hypothesis
             that the moment has a solution
         '''
+        self._check_is_fitted()
         pviolation = np.round(self.primal_violation_, decimals)
         pviolation_dist = f'chi2(df={self.pz_ + 1})'
         pviolation_pval = scipy.stats.chi2(self.pz_ + 1).sf(self.primal_violation_)
@@ -776,6 +833,7 @@ class ProximalDE(BaseEstimator):
             The critical value above which we can reject the null hypothesis
             that the moment has a solution
         '''
+        self._check_is_fitted()
         dviolation = np.round(self.dual_violation_, decimals)
         dviolation_dist = f'chi2(df={self.px_})'
         dviolation_pval = scipy.stats.chi2(self.px_).sf(self.dual_violation_)
@@ -820,6 +878,7 @@ class ProximalDE(BaseEstimator):
             The critical value above which we can reject the null hypothesis
             that the moment has a solution
         '''
+        self._check_is_fitted()
         strength = np.round(self.idstrength_, decimals)
         strength_dist = f'|N({c}, s={np.round(self.idstrength_std_, decimals)})|'
         dist = scipy.stats.foldnorm(c=c / self.idstrength_std_, scale=self.idstrength_std_)
@@ -1106,14 +1165,18 @@ class ProximalDE(BaseEstimator):
                                             self.Z_[sub],
                                             self.X_[sub],
                                             self.Y_[sub],
+                                            model_regression=self.model_regression_,
+                                            model_classification=self.model_classification_,
+                                            binary_D=self.binary_D_,
+                                            binary_Z=self.binary_Z_,
+                                            binary_X=self.binary_X_,
+                                            binary_Y=self.binary_Y_,
                                             dual_type=self.dual_type_,
                                             ivreg_type=self.ivreg_type_,
                                             alpha_multipliers=self.alpha_multipliers_,
                                             alpha_exponent=self.alpha_exponent_,
-                                            categorical=self.categorical_,
                                             cv=self.cv_,
                                             semi=self.semi_,
-                                            multitask=self.multitask_,
                                             n_jobs=1, verbose=0,
                                             random_state=None)
             for sub in subsamples)

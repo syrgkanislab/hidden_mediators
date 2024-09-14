@@ -1,6 +1,7 @@
 import numpy as np
 import warnings
 import scipy.linalg
+from sklearn.base import BaseEstimator, clone
 
 
 def _check_input(*args):
@@ -74,3 +75,37 @@ def svd_critical_value(Z, X, *, alpha=0.05, mc_samples=1000):
     samples = np.random.chisquare(df=1, size=(mc_samples, len(eigs))) @ eigs
     critical = np.sqrt(np.percentile(samples, (1 - alpha) * 100))
     return critical
+
+
+class CVWrapper(BaseEstimator):
+
+    def __init__(self, *, modelcv, model, params):
+        ''' All params are assumed to be scalar and their values
+        will be forced to scalars.
+        '''
+        self.modelcv = modelcv
+        self.model = model
+        self.params = params
+
+    def fit(self, X, y):
+        # a fitted object on the passed data
+        self.modelcv_ = clone(self.modelcv).fit(X, y)
+
+        # an unfitted object with the best hyperparams
+        self.best_estimator_ = clone(self.model)
+        for key in self.params:
+            value = getattr(self.modelcv_, f'{key}_')
+            if hasattr(value, '__len__'):
+                value = value[0]
+            setattr(self.best_estimator_, key, value)
+
+        if hasattr(self.modelcv_, 'classes_'):
+            self.classes_ = self.modelcv_.classes_
+
+        return self
+
+    def predict(self, X):
+        return self.modelcv_.predict(X)
+
+    def predict_proba(self, X):
+        return self.modelcv_.predict_proba(X)

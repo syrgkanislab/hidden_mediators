@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.linear_model import LassoCV, Lasso, LogisticRegressionCV, LogisticRegression
 from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv, train_test_split
+from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
 from statsmodels.iolib.table import SimpleTable
@@ -57,8 +58,15 @@ def residualizeW(W, D, Z, X, Y, *,
                                          model=Lasso(random_state=random_state),
                                          params=['alpha'])
         if model_classification == 'auto':
-            model_classification = CVWrapper(modelcv=LogisticRegressionCV(random_state=random_state),
-                                             model=LogisticRegression(random_state=random_state),
+            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='liblinear',
+                                                                          scoring='neg_log_loss',
+                                                                          intercept_scaling=100,
+                                                                          tol=1e-6,
+                                                                          random_state=random_state),
+                                             model=LogisticRegression(penalty='l1', solver='liblinear',
+                                                                      intercept_scaling=100,
+                                                                      tol=1e-6,
+                                                                      random_state=random_state),
                                              params=['C'])
 
         splits = list(cv.split(W, D))

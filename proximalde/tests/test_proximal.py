@@ -4,7 +4,7 @@ from scipy.stats import chi2, ncx2
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
 from sklearn.base import clone
-from sklearn.linear_model import LassoCV
+from sklearn.linear_model import LassoCV, LogisticRegressionCV
 from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
 from ..gen_data import gen_data_complex, gen_data_no_controls, gen_data_no_controls_discrete_m
 from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
@@ -117,6 +117,33 @@ def test_residualized_w_equivalency():
                             for i in range(T.shape[1])], axis=-1)
         assert np.allclose(res, resT)
         assert np.isclose(np.mean(1 - np.mean(res**2, axis=0) / np.var(T, axis=0)), r2T)
+    
+    
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+    Z[:, 1] = D
+    X[:, 2] = D
+    Y = D
+
+    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
+        residualizeW(W, D, Z, X, Y, binary_D=True, binary_Z=[1], binary_X=[2],
+                     binary_Y=True,
+                     cv=5, semi=False, n_jobs=1, verbose=0,
+                     random_state=123)
+
+    # checking the binary first
+    for T, resT in [(D.reshape(-1, 1), Dres), (Z[:, [1]], Zres[:, [1]]),
+                    (X[:, [2]], Xres[:, [2]]), (Y.reshape(-1, 1), Yres)]:
+        res = T - np.stack([cross_val_predict(LogisticRegressionCV(random_state=123),
+                                              W, T[:, i], cv=splits, method='predict_proba')[:, 1]
+                            for i in range(T.shape[1])], axis=-1)
+        assert np.allclose(res, resT)
+
+    # checking the binary first
+    for T, resT in [(Z[:, [0, 2]], Zres[:, [0, 2]]),
+                    (X[:, [0, 1]], Xres[:, [0, 1]])]:
+        res = T - np.stack([cross_val_predict(LassoCV(random_state=123), W, T[:, i], cv=splits)
+                            for i in range(T.shape[1])], axis=-1)
+        assert np.allclose(res, resT)
 
 
 def test_estimate_nuisances():

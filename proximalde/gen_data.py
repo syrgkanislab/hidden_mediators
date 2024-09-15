@@ -61,7 +61,8 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     return W, D, M, Z, X, Y
                            
 def gen_multi_data(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
-    ''' Now the mediator is multi-dimensional (takes pm
+    ''' IN PROGRESS: Will be a more "realistic" version of 
+    synthetic data. Now the mediator is multi-dimensional (takes pm
     non-zero discrete values and zero).
 
     n: number of samples
@@ -155,10 +156,10 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
         
     Z = np.zeros((n, pz))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
-
+    print("Here!")
     if dx_path:
-        X = f * M + sx * np.random.normal(0, 1, (n, px))
-        X[:, invalidXinds] = f * Mp.reshape(-1, 1)
+        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+        X[:, invalidXinds] += f * Mp.reshape(-1, 1)
     else:
         X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
     

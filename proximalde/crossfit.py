@@ -1,6 +1,6 @@
 import numpy as np
 from sklearn.base import clone
-from sklearn.model_selection import cross_val_predict
+from sklearn.model_selection import cross_val_predict, train_test_split
 from joblib import Parallel, delayed
 
 def _cross_val_predict(model, X, Y, cv):
@@ -17,7 +17,8 @@ def _cross_val_predict(model, X, Y, cv):
         for train_idx, val_idx in cv:
             X_train, X_val = X[train_idx], X[val_idx]
             Y_train, Y_val = Y[train_idx], Y[val_idx]
-            model.fit(X_train, Y_train, eval_set=[(X_val, Y_val)], verbose=False)
+            X_train, X_test, Y_train, Y_test = train_test_split(X_train, Y_train, test_size=0.3)
+            model.fit(X_train, Y_train, eval_set=[(X_test, Y_test)], verbose=False)
             predictions[val_idx] = model.predict(X_val).reshape(Y_val.shape)
 
         return predictions

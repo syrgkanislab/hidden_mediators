@@ -77,7 +77,7 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
         else:
             semi = False
             model = None # ignored
-            modelcv = xgb.XGBRegressor(random_state=random_state, max_depth=3, 
+            modelcv = xgb.XGBRegressor(random_state=random_state, max_depth=3, learning_rate=.1,
                                      early_stopping_rounds=50)
 
         splits = list(cv.split(W, D))

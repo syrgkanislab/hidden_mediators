@@ -12,15 +12,10 @@ class Regularized2SLS(BaseEstimator):
 
     Parameters
     ----------
-    modelcv_first : estimator object
-        A (potentially) cross-validated regularized linear regression
-        object. If it regularized, then it needs to store the regularization
-        penalty in attribute `alpha_` after being fitted.
     model_first : estimator object
-        A non cross-validated regularized linear regression object. If
-        `semi=False`, this object will be ignored. If `semi=True`, it
-        needs to have as input parameter `alpha` that corresponds to the
-        penalty level.
+        A regularized linear regression object. If `semi=True`, it
+        needs to have an attribute `best_estimator_` that corresponds to the
+        an estimator with the best hyperaparameter choice after being fitted.
     model_final : estimator object
         A (regularized) linear regression object. If it regularized,
         then it needs to store the regularization penalty in attribute
@@ -30,7 +25,7 @@ class Regularized2SLS(BaseEstimator):
         declares if an intercept was fitted.
     cv : any cross-validation generator option, optional (default=5)
         See `sklearn.model_selection.check_cv` for valid options
-    semi : bool, optinal (default=True)
+    semi : bool, optinal (default=False)
         Whether semi-cross-fitting will be used for the first stage
         regression, or simple cross-fitting.
     multitask : bool, optional (default=False)
@@ -44,19 +39,16 @@ class Regularized2SLS(BaseEstimator):
         Random seed for deterministic behavior or `None` for non-determinism.
     '''
 
-    def __init__(self, *, modelcv_first, model_first, model_final,
+    def __init__(self, *, model_first, model_final,
                  cv=5,
-                 semi=True,
-                 multitask=False,
+                 semi=False,
                  n_jobs=None,
                  verbose=0,
                  random_state=None):
         self.model_first = model_first
-        self.modelcv_first = modelcv_first
         self.model_final = model_final
         self.cv = cv
         self.semi = semi
-        self.multitask = multitask
         self.n_jobs = n_jobs
         self.verbose = verbose
         self.random_state = random_state
@@ -91,8 +83,9 @@ class Regularized2SLS(BaseEstimator):
         splits = list(self.cv_.split(Z, D))
 
         # Cross-fitted and regularized first stage predictions
-        Q = fit_predict(Z, D, self.modelcv_first, self.model_first,
-                        splits, self.semi, self.multitask, self.n_jobs, self.verbose)
+        Q = fit_predict(Z, D, [False] * (D.shape[1] if len(D.shape) > 1 else 1),
+                        self.model_first, None,
+                        splits, self.semi, self.n_jobs, self.verbose)
 
         # Regularized second stage
         model_final = clone(self.model_final).fit(Q, Y)

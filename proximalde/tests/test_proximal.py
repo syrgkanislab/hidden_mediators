@@ -4,7 +4,7 @@ from scipy.stats import chi2, ncx2
 from sklearn.model_selection import StratifiedKFold, KFold
 from sklearn.model_selection import cross_val_predict
 from sklearn.base import clone
-from sklearn.linear_model import LassoCV, MultiTaskLassoCV, MultiTaskLasso
+from sklearn.linear_model import LassoCV, LogisticRegressionCV
 from sklearn.linear_model import RidgeCV, Ridge, LinearRegression
 from ..gen_data import gen_data_complex, gen_data_no_controls, gen_data_no_controls_discrete_m
 from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
@@ -12,6 +12,7 @@ from ..proximal import residualizeW, estimate_nuisances, estimate_final, \
 from .utilities import gen_iv_data
 from ..ivreg import Regularized2SLS
 from ..inference import NormalInferenceResults
+from ..utilities import CVWrapper
 from joblib import Parallel, delayed
 
 
@@ -28,8 +29,8 @@ def test_residualize_w_shapes_and_accuracy():
     Wfake = np.random.normal(0, 1, size=(n,))
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
         residualizeW(Wfake, D.flatten(), Z.flatten(), X.flatten(), Y.flatten(),
-                     categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     binary_D=True,
+                     cv=5, semi=False, n_jobs=-1, verbose=0,
                      random_state=None)
 
     assert Dres.shape == (n, 1)
@@ -44,23 +45,23 @@ def test_residualize_w_shapes_and_accuracy():
     with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         residualizeW(Wfake, np.hstack([D.reshape(-1, 1), D.reshape(-1, 1)]),
                      Z.flatten(), X.flatten(), Y.flatten(),
-                     categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     binary_D=True,
+                     cv=5, semi=False, n_jobs=-1, verbose=0,
                      random_state=None)
     print(e_info)
 
     with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         residualizeW(Wfake, D, Z.flatten(), X.flatten(),
                      np.hstack([Y.reshape(-1, 1), Y.reshape(-1, 1)]),
-                     categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     binary_D=True,
+                     cv=5, semi=False, n_jobs=-1, verbose=0,
                      random_state=None)
     print(e_info)
 
     with pytest.raises(AttributeError, match="same number of samples") as e_info:
         residualizeW(Wfake, D[:100], Z.flatten(), X.flatten(), Y,
-                     categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=-1, verbose=0,
+                     binary_D=True,
+                     cv=5, semi=False, n_jobs=-1, verbose=0,
                      random_state=None)
     print(e_info)
 
@@ -75,8 +76,8 @@ def test_residualize_w_splitting():
     pz, px = 1, 1
     W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
     _, _, _, _, _, _, _, _, splits = \
-        residualizeW(W, D, Z, X, Y, categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=1, verbose=0,
+        residualizeW(W, D, Z, X, Y, binary_D=True,
+                     cv=5, semi=False, n_jobs=1, verbose=0,
                      random_state=123)
 
     splits2 = list(StratifiedKFold(n_splits=5, shuffle=True, random_state=123).split(W, D))
@@ -85,21 +86,11 @@ def test_residualize_w_splitting():
         assert np.allclose(te1, te2)
 
     _, _, _, _, _, _, _, _, splits = \
-        residualizeW(W, D, Z, X, Y, categorical=False,
-                     cv=5, semi=False, multitask=False, n_jobs=1, verbose=0,
+        residualizeW(W, D, Z, X, Y, binary_D=False,
+                     cv=5, semi=False, n_jobs=1, verbose=0,
                      random_state=123)
 
     splits2 = list(KFold(n_splits=5, shuffle=True, random_state=123).split(W, D))
-    for (tr1, te1), (tr2, te2) in zip(splits, splits2):
-        assert np.allclose(tr1, tr2)
-        assert np.allclose(te1, te2)
-
-    _, _, _, _, _, _, _, _, splits = \
-        residualizeW(W, W[:, 0], Z, X, Y, categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=1, verbose=0,
-                     random_state=123)
-
-    splits2 = list(KFold(n_splits=5, shuffle=True, random_state=123).split(W, W[:, 0]))
     for (tr1, te1), (tr2, te2) in zip(splits, splits2):
         assert np.allclose(tr1, tr2)
         assert np.allclose(te1, te2)
@@ -116,8 +107,8 @@ def test_residualized_w_equivalency():
     W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
 
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-        residualizeW(W, D, Z, X, Y, categorical=True,
-                     cv=5, semi=False, multitask=False, n_jobs=1, verbose=0,
+        residualizeW(W, D, Z, X, Y, binary_D=False,
+                     cv=5, semi=False, n_jobs=1, verbose=0,
                      random_state=123)
 
     for T, resT, r2T in [(D.reshape(-1, 1), Dres, r2D), (Z, Zres, r2Z),
@@ -126,29 +117,38 @@ def test_residualized_w_equivalency():
                             for i in range(T.shape[1])], axis=-1)
         assert np.allclose(res, resT)
         assert np.isclose(np.mean(1 - np.mean(res**2, axis=0) / np.var(T, axis=0)), r2T)
+    
+    
+    W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+    Z[:, 1] = D
+    X[:, 2] = D
+    Y = D
 
     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-        residualizeW(W, D, Z, X, Y, categorical=True,
-                     cv=5, semi=False, multitask=True, n_jobs=1, verbose=0,
+        residualizeW(W, D, Z, X, Y, binary_D=True, binary_Z=[1], binary_X=[2],
+                     binary_Y=True,
+                     cv=5, semi=False, n_jobs=1, verbose=0,
                      random_state=123)
 
-    for T, resT, r2T in [(D.reshape(-1, 1), Dres, r2D), (Z, Zres, r2Z),
-                         (X, Xres, r2X), (Y.reshape(-1, 1), Yres, r2Y)]:
-        res = T - cross_val_predict(MultiTaskLassoCV(random_state=123), W, T, cv=splits)
+    # checking the binary first
+    for T, resT in [(D.reshape(-1, 1), Dres), (Z[:, [1]], Zres[:, [1]]),
+                    (X[:, [2]], Xres[:, [2]]), (Y.reshape(-1, 1), Yres)]:
+        res = T - np.stack([cross_val_predict(LogisticRegressionCV(penalty='l1',
+                                                                   solver='liblinear',
+                                                                   scoring='neg_log_loss',
+                                                                   intercept_scaling=100,
+                                                                   tol=1e-6,
+                                                                   random_state=123),
+                                              W, T[:, i], cv=splits, method='predict_proba')[:, 1]
+                            for i in range(T.shape[1])], axis=-1)
         assert np.allclose(res, resT)
-        assert np.isclose(np.mean(1 - np.mean(res**2, axis=0) / np.var(T, axis=0)), r2T)
 
-    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-        residualizeW(W, D, Z, X, Y, categorical=True,
-                     cv=5, semi=True, multitask=True, n_jobs=1, verbose=0,
-                     random_state=123)
-
-    for T, resT, r2T in [(D.reshape(-1, 1), Dres, r2D), (Z, Zres, r2Z),
-                         (X, Xres, r2X), (Y.reshape(-1, 1), Yres, r2Y)]:
-        alpha = MultiTaskLassoCV(random_state=123).fit(W, T).alpha_
-        res = T - cross_val_predict(MultiTaskLasso(alpha=alpha, random_state=123), W, T, cv=splits)
+    # checking the binary first
+    for T, resT in [(Z[:, [0, 2]], Zres[:, [0, 2]]),
+                    (X[:, [0, 1]], Xres[:, [0, 1]])]:
+        res = T - np.stack([cross_val_predict(LassoCV(random_state=123), W, T[:, i], cv=splits)
+                            for i in range(T.shape[1])], axis=-1)
         assert np.allclose(res, resT)
-        assert np.isclose(np.mean(1 - np.mean(res**2, axis=0) / np.var(T, axis=0)), r2T)
 
 
 def test_estimate_nuisances():
@@ -177,8 +177,9 @@ def test_estimate_nuisances():
                                                                          cv=2, n_jobs=-1, verbose=0,
                                                                          random_state=123)
         assert np.allclose(Ybar, Y - X[:, 1:] @ eta)
-        ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
-                                model_first=Ridge(fit_intercept=False),
+        ivreg = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                                                      model=Ridge(fit_intercept=False),
+                                                      params=['alpha']),
                                 model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                                 cv=2, random_state=123).fit(Z, X, Y)
         coef1 = ivreg.coef_
@@ -201,8 +202,9 @@ def test_estimate_nuisances():
                                                                      cv=2, n_jobs=-1, verbose=0,
                                                                      random_state=123)
     assert np.allclose(Dbar, Y - X @ gamma)
-    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
-                            model_first=Ridge(fit_intercept=False),
+    ivreg = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                                                  model=Ridge(fit_intercept=False),
+                                                  params=['alpha']),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                             cv=2, random_state=123)
     ivreg.fit(Z, X, Y)
@@ -224,8 +226,9 @@ def test_estimate_nuisances():
                                                                         cv=5, n_jobs=-1, verbose=0,
                                                                         random_state=123)
     # assert np.allclose(Dbar, Y - X @ gamma, atol=1e-3)
-    ivreg = Regularized2SLS(modelcv_first=RidgeCV(fit_intercept=False, alphas=alphas),
-                            model_first=Ridge(fit_intercept=False),
+    ivreg = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False, alphas=alphas),
+                                                  model=Ridge(fit_intercept=False),
+                                                  params=['alpha']),
                             model_final=RidgeCV(fit_intercept=False, alphas=alphas),
                             cv=5, random_state=123).fit(X, X, Y)
     coef1 = ivreg.coef_
@@ -323,8 +326,7 @@ def test_estimate_final():
     np.random.seed(123)
     Z, X, Y, _ = gen_iv_data(10000, 1, 1, 0, .5)
     point, std, inf = estimate_final(Z, X, Y)
-    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
-                            model_first=None,
+    ivreg = Regularized2SLS(model_first=LinearRegression(fit_intercept=False),
                             model_final=LinearRegression(fit_intercept=False),
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
@@ -354,11 +356,11 @@ def test_proximal_de_equivalency():
     '''
     np.random.seed(123)
     Z, X, Y, _ = gen_iv_data(10000, 3, 3, 1, .5)
-    point, std, *_ = second_stage(Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z', ivreg_type='2sls',
+    point, std, *_ = second_stage(Z[:, [0]], Z[:, 1:], X[:, 1:], Y,
+                                  dual_type='Z', ivreg_type='2sls',
                                   cv=5, n_jobs=-1, verbose=0, random_state=None)
 
-    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
-                            model_first=None,
+    ivreg = Regularized2SLS(model_first=LinearRegression(fit_intercept=False),
                             model_final=LinearRegression(fit_intercept=False),
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
@@ -369,19 +371,20 @@ def test_proximal_de_equivalency():
     np.random.seed(123)
     Z, X, Y, _ = gen_iv_data(10000, 3, 3, 1, .5)
     W = np.random.normal(0, 1, size=(10000, 2))
-    ivreg = Regularized2SLS(modelcv_first=LinearRegression(fit_intercept=False),
-                            model_first=None,
+    ivreg = Regularized2SLS(model_first=LinearRegression(fit_intercept=False),
                             model_final=LinearRegression(fit_intercept=False),
                             semi=False,
                             cv=[(np.arange(X.shape[0]), np.arange(X.shape[0]))],
                             random_state=123).fit(Z, X, Y)
 
-    point, std, *_ = proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z', ivreg_type='2sls',
+    point, std, *_ = proximal_direct_effect(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, binary_D=False,
+                                            dual_type='Z', ivreg_type='2sls',
                                             cv=5, n_jobs=-1, verbose=0, random_state=None)
     assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
     assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
 
-    point, std, *_ = proximal_direct_effect(None, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, dual_type='Z', ivreg_type='2sls',
+    point, std, *_ = proximal_direct_effect(None, Z[:, [0]], Z[:, 1:], X[:, 1:], Y, binary_D=False,
+                                            dual_type='Z', ivreg_type='2sls',
                                             cv=5, n_jobs=-1, verbose=0, random_state=None)
     assert np.allclose(point, ivreg.coef_[0], atol=1e-3)
     assert np.allclose(std, ivreg.stderr_[0], atol=1e-3)
@@ -410,7 +413,7 @@ def test_gen_subsamples():
     assert np.any([len(np.unique(s1t)) < len(s1t) for s1t in s1])
 
     Z, X, Y, _ = gen_iv_data(100, 1, 1, 0, .5)
-    pde = ProximalDE(cv=2, n_jobs=1).fit(Z, Z, Z, X, Y)
+    pde = ProximalDE(binary_D=False, cv=2, n_jobs=1).fit(Z, Z, Z, X, Y)
     for method in [pde.subsample_third_stage, pde.subsample_second_stage, pde.subsample_all_stages]:
         _, s1 = method(n_subsamples=10, fraction=.3, replace=False, random_state=123)
         _, s2 = method(n_subsamples=10, fraction=.3, replace=False, random_state=123)
@@ -455,7 +458,9 @@ def test_raise_nonfitted():
     print(e_info)
 
     for method in [pde.bootstrap_inference, pde.conf_int, pde.run_diagnostics, pde.subsample_all_stages,
-                   pde.subsample_second_stage, pde.subsample_third_stage, pde.summary]:
+                   pde.subsample_second_stage, pde.subsample_third_stage, pde.summary,
+                   pde.covariance_rank_test, pde.primal_violation_test, pde.dual_violation_test,
+                   pde.idstrength_violation_test]:
         with pytest.raises(AttributeError, match="not fitted") as e_info:
             method()
         print(e_info)
@@ -469,7 +474,7 @@ def test_pde_fit():
     pz, px = 3, 2
     W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
 
-    pde = ProximalDE(cv=2, n_jobs=1)
+    pde = ProximalDE(binary_D=False, cv=2, n_jobs=1)
     with pytest.raises(AttributeError, match="should be a scalar") as e_info:
         pde.fit(W, Z[:, [0, 1]], Z[:, 1:], X[:, 1:], Y)
     print(e_info)
@@ -478,21 +483,20 @@ def test_pde_fit():
         pde.fit(W, Z[:, [0]], Z[:, 1:], X[:, 1:], Z[:, [0, 1]])
     print(e_info)
 
-    for semi, cv, dual_type, ivreg_type, multitask, \
-        categorical, random_state in [(True, 2, 'Z', '2sls', True, True, 123),
-                                      (False, 3, 'Q', 'adv', False, False, 345)]:
-        pde = ProximalDE(dual_type=dual_type,  ivreg_type=ivreg_type, categorical=categorical, cv=cv,
-                         semi=semi, multitask=multitask,
+    for semi, cv, dual_type, ivreg_type, \
+        categorical, random_state in [(True, 2, 'Z', '2sls', True, 123),
+                                      (False, 3, 'Q', 'adv', False, 345)]:
+        pde = ProximalDE(dual_type=dual_type,  ivreg_type=ivreg_type, binary_D=categorical, cv=cv,
+                         semi=semi,
                          n_jobs=1, random_state=random_state)
         pde.fit(W, D, Z, X, Y,)
         point, std, r2D, r2Z, r2X, r2Y, \
             idstrength, idstrength_std, point_pre, std_pre = proximal_direct_effect(W, D, Z, X, Y,
                                                                                     dual_type=dual_type,
                                                                                     ivreg_type=ivreg_type,
-                                                                                    categorical=categorical,
+                                                                                    binary_D=categorical,
                                                                                     cv=cv,
                                                                                     semi=semi,
-                                                                                    multitask=multitask,
                                                                                     n_jobs=1, verbose=0,
                                                                                     random_state=random_state)
         assert pde.pw_ == pw
@@ -510,10 +514,9 @@ def test_pde_fit():
         assert np.allclose(pde.stderr_pre_, std_pre)
         assert pde.nobs_ == n
         assert pde.dual_type_ == dual_type
-        assert pde.categorical_ == categorical
+        assert pde.binary_D_ == categorical
         assert pde.cv_ == cv
         assert pde.semi_ == semi
-        assert pde.multitask_ == multitask
         assert np.allclose(pde.W_, W)
         assert np.allclose(pde.D_, D.reshape(-1, 1))
         assert np.allclose(pde.Z_, Z)
@@ -740,7 +743,7 @@ def test_influential_set():
         c = sign * 90
         W, D, _, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
         est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                         multitask=False, n_jobs=-1, random_state=3, verbose=3)
+                         n_jobs=-1, random_state=3, verbose=3)
         est.fit(W, D, Z, X, Y)
         diag = est.run_diagnostics()
         inds = est.influential_set(alpha=0.05)
@@ -784,6 +787,7 @@ def idstrength_violation_q(sm):
         g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
         W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+        W = None
         D = D.reshape(-1, 1)
         D = D - D.mean(axis=0)
         sd = np.sqrt(np.mean(D**2))
@@ -821,7 +825,7 @@ def idstrength_violation_q(sm):
         print("strength", true_strength)
 
         est = ProximalDE(dual_type='Q', cv=3, semi=True,
-                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                         n_jobs=-1, random_state=3, verbose=0)
         est.fit(W, D, Z, X, Y)
         print('point, std', est.point_, est.stderr_)
         print(est.gamma_, true_gamma)
@@ -873,6 +877,7 @@ def idstrength_violation_z(sm):
         g = (2 * np.random.binomial(1, .5) - 1) * np.random.uniform(.5, 2)
         sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
         W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+        W = None
         D = D.reshape(-1, 1)
         D = D - D.mean(axis=0)
         sd = np.sqrt(np.mean(D**2))
@@ -902,7 +907,7 @@ def idstrength_violation_z(sm):
         print("strength", true_strength)
 
         est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                         n_jobs=-1, random_state=3, verbose=0)
         est.fit(W, D, Z, X, Y)
         print('point, std', est.point_, est.stderr_)
         print(est.gamma_, true_gamma)
@@ -948,6 +953,7 @@ def test_primal_violation_caught_z():
     d, e, f, g = 0.0, 0.5, 0.0, 1.0
     sm, sz, sx, sy = 2, 1, 1, 1
     W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    W = None
     D = D.reshape(-1, 1)
     D = D - D.mean(axis=0)
     X = X - X.mean(axis=0)
@@ -956,7 +962,7 @@ def test_primal_violation_caught_z():
     Y = Y - Y.mean(axis=0)
 
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                     n_jobs=-1, random_state=3, verbose=0)
     est.fit(W, D, Z, X, Y)
     print(est.point_, est.stderr_)
     print(est.idstrength_, est.primal_violation_, est.dual_violation_)
@@ -977,7 +983,7 @@ def test_rank_violation_caught():
     a, b, c = .7, .8, .5
     d, e, f, g = 0.0, 0.0, 1.0, 1.0
     sm, sz, sx, sy = 2, 1, 1, 1
-    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    _, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
     D = D.reshape(-1, 1)
     D = D - D.mean(axis=0)
     X = X - X.mean(axis=0)
@@ -986,7 +992,7 @@ def test_rank_violation_caught():
     Y = Y - Y.mean(axis=0)
 
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                     n_jobs=-1, random_state=3, verbose=0)
     est.fit(None, D, Z, X, Y)
     with pytest.warns(UserWarning, match="large sample size"):
         svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
@@ -1000,7 +1006,7 @@ def test_rank_violation_caught():
     a, b, c = .7, .8, .5
     d, e, f, g = 0.0, 1.0, 1.0, 1.0
     sm, sz, sx, sy = 2, 1, 1, 1
-    W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    _, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
     D = D.reshape(-1, 1)
     D = D - D.mean(axis=0)
     X = X - X.mean(axis=0)
@@ -1009,7 +1015,7 @@ def test_rank_violation_caught():
     Y = Y - Y.mean(axis=0)
 
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                     n_jobs=-1, random_state=3, verbose=0)
     est.fit(None, D, Z, X, Y)
     svalues, svalues_crit = est.covariance_rank_test(calculate_critical=True)
     assert svalues[0] > svalues_crit
@@ -1030,6 +1036,7 @@ def test_dual_violation_z():
     d, e, f, g = 0.0, 0.0, 1.0, 1.0
     sm, sz, sx, sy = 2, 1, 1, 1
     W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm, sz=sz, sx=sx, sy=sy)
+    W = None
     D = D.reshape(-1, 1)
     D = D - D.mean(axis=0)
     X = X - X.mean(axis=0)
@@ -1037,7 +1044,7 @@ def test_dual_violation_z():
     Y = Y.reshape(-1, 1)
     Y = Y - Y.mean(axis=0)
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                     n_jobs=-1, random_state=3, verbose=0)
     est.fit(W, D, Z, X, Y)
 
     print(est.idstrength_, est.primal_violation_, est.dual_violation_)
@@ -1049,11 +1056,14 @@ def test_dual_violation_z():
 def test_accuracy_no_violations():
     ''' Test that we recover truth when assumptions hold
     '''
-    np.random.seed(123)
+    np.random.seed(1234)
     for n in [10000, 100000]:
         for pz, px, pass_w in [(3, 2, True), (2, 3, False)]:
-            for dual_type, ivreg_type in [('Z', '2sls'), ('Z', 'adv'),
-                                          ('Q', '2sls'), ('Q', 'adv')]:
+            for dual_type, ivreg_type,\
+                model_regression, model_classification in [('Z', '2sls', 'linear', 'linear'),
+                                                           ('Z', 'adv', 'xgb', 'xgb'),
+                                                           ('Q', '2sls', 'linear', 'linear'),
+                                                           ('Q', 'adv', 'linear', 'linear')]:
                 for _ in range(5):
                     print(n, pz, px, dual_type, ivreg_type)
                     pw = 1
@@ -1073,15 +1083,19 @@ def test_accuracy_no_violations():
                                                             sm=sm, sz=sz, sx=sx, sy=sy)
 
                     if pass_w:
-                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
-                                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                        est = ProximalDE(model_regression=model_regression,
+                                         model_classification=model_classification,
+                                         dual_type=dual_type, ivreg_type=ivreg_type, cv=3, semi=True,
+                                         n_jobs=-1, random_state=3, verbose=0)
                         est.fit(W, D, Z, X, Y)
                     else:
-                        est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type,
+                        est = ProximalDE(model_regression=model_regression,
+                                         model_classification=model_classification,
+                                         dual_type=dual_type, ivreg_type=ivreg_type,
                                          alpha_multipliers=np.array([1.0, 1.0 * n]),
                                          alpha_exponent=0.39,
                                          cv=3, semi=True,
-                                         multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                                         n_jobs=-1, random_state=3, verbose=0)
                         est.fit(None, D, Z, X, Y)
                         assert np.allclose(est.alpha_multipliers_, np.array([1.0, 1.0 * n]))
                         assert est.alpha_exponent_ == 0.39
@@ -1119,6 +1133,7 @@ def test_weakiv_tests():
                             sz, sx, sy = np.random.uniform(.5, 2), np.random.uniform(.5, 2), np.random.uniform(.5, 2)
                             W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g,
                                                                     sm=sm, sz=sz, sx=sx, sy=sy)
+                            W = None
                             D = D.reshape(-1, 1)
                             D = D - D.mean(axis=0)
                             X = X - X.mean(axis=0)
@@ -1126,7 +1141,7 @@ def test_weakiv_tests():
                             Y = Y.reshape(-1, 1)
                             Y = Y - Y.mean(axis=0)
                             est = ProximalDE(dual_type=dual_type, ivreg_type=ivreg_type, cv=5, semi=True,
-                                             multitask=False, n_jobs=-1, random_state=3, verbose=0)
+                                             n_jobs=-1, random_state=3, verbose=0)
                             est.fit(W, D, Z, X, Y)
                             if pz == 1:
                                 weakiv_stat, _, _, weakiv_crit, pi, var_pi = est.weakiv_test(alpha=0.06, tau=0.099,
@@ -1178,7 +1193,7 @@ def exp_summary(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
     np.random.seed(it)
     W, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm)
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=1, random_state=3, verbose=0)
+                     n_jobs=1, random_state=3, verbose=0)
     est.fit(W, D, Z, X, Y)
     lb, ub = est.robust_conf_int(lb=-2, ub=2)
     weakiv_stat, _, _, _, pi, var_pi = est.weakiv_test(return_pi_and_var=True)
@@ -1223,7 +1238,7 @@ def exp_summary_multidim(it, n, pm, pw, pz, px, a, b, c, d, E, F, g):
     np.random.seed(it)
     _, D, _, Z, X, Y = gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, pm=pm)
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=1, random_state=3, verbose=0)
+                     n_jobs=1, random_state=3, verbose=0)
     est.fit(None, D, Z, X, Y)
     return est.primal_violation_, est.dual_violation_
 
@@ -1259,7 +1274,7 @@ def exp_summary_strength(it, n, pw, pz, px, a, b, c, d, e, f, g, sm):
     np.random.seed(it)
     _, D, _, Z, X, Y = gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm)
     est = ProximalDE(dual_type='Z', cv=3, semi=True,
-                     multitask=False, n_jobs=1, random_state=3, verbose=0)
+                     n_jobs=1, random_state=3, verbose=0)
     est.fit(None, D, Z, X, Y)
     id, _, _, idcrit = est.idstrength_violation_test(c=0.0)
     return id, idcrit

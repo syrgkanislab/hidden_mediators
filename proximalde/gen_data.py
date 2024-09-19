@@ -178,10 +178,13 @@ class SemiSyntheticGenerator:
         self.test_size = test_size
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y):
-
-        _, Zres, Xres, Yres, *_ = residualizeW(W, D, Z, X, Y, semi=True)
-
+    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None):
+        np.random.seed(self.random_state)
+        if ZXYres == []:
+            _, Zres, Xres, Yres, *_ = residualizeW(W, D, Z, X, Y, semi=True)
+        else:
+            Zres, Xres, Yres = ZXYres
+            
         if self.split:
             train, test = train_test_split(np.arange(D.shape[0]),
                                            test_size=self.test_size,
@@ -224,25 +227,28 @@ class SemiSyntheticGenerator:
         # and the empirical marginal distribution of Z and add a sample from
         # that to the "correlated part". This might create more noisy samples
         # but preserving more of the row data.
-        projZ = np.eye(Z.shape[1]) - G @ scipy.linalg.pinvh(G.T @ G) @ G.T
-        projX = np.eye(X.shape[1]) - F @ scipy.linalg.pinvh(F.T @ F) @ F.T
+        projZ = np.eye(Zres.shape[1]) - G @ scipy.linalg.pinvh(G.T @ G) @ G.T
+        projX = np.eye(Xres.shape[1]) - F @ scipy.linalg.pinvh(F.T @ F) @ F.T
 
-        self.Zepsilon_ = Z[test] @ projZ.T
-        self.Xepsilon_ = X[test] @ projX.T
+        self.Zepsilon_ = Zres[test] @ projZ.T
+        self.Xepsilon_ = Xres[test] @ projX.T
 
         self.G_ = G
         self.F_ = F
         self.s_ = S[S > critical]
 
         if W is not None:
-            if self.split:
-                self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
-                                                     W, D,
-                                                     cv=StratifiedKFold(5, shuffle=True, random_state=123),
-                                                     method='predict_proba')[:, 1]
+            if propensity is not None:
+                self.propensity_ = propensity
             else:
-                lg = LogisticRegressionCV(random_state=self.random_state)
-                self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+                if self.split:
+                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
+                                                        W, D,
+                                                        cv=StratifiedKFold(5, shuffle=True, random_state=123),
+                                                        method='predict_proba')[:, 1]
+                else:
+                    lg = LogisticRegressionCV(random_state=self.random_state)
+                    self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
         else:
             self.propensity_ = np.mean(D[train]) * np.ones(len(test))
 
@@ -276,11 +282,11 @@ class SemiSyntheticGenerator:
         Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
 
         indsZ = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Z_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
+        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Zres_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
         indsX = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Xtilde = baseX + Mtilde @ self.F_.T + (self.X_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
+        Xtilde = baseX + Mtilde @ self.F_.T + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
 
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Y_[indsY]
+        Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Yres_[indsY]
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde
     

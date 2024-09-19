@@ -33,7 +33,7 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
     semi : bool
         Whether semi-cross-fitting or cross-fitting will be performed.
 
-    Returns
+    Return:ss
     -------
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.

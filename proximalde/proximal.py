@@ -64,14 +64,14 @@ def residualizeW(W, D, Z, X, Y, *,
         # otherwise model_regression is assumed to be an estimation object
 
         if model_classification == 'linear':
-            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='liblinear',
+            print("omg here")
+
+            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='saga',
                                                                           scoring='neg_log_loss',
-                                                                          intercept_scaling=100,
-                                                                          tol=1e-6,
+                                                                          tol=1e-4,
                                                                           random_state=random_state),
-                                             model=LogisticRegression(penalty='l1', solver='liblinear',
-                                                                      intercept_scaling=100,
-                                                                      tol=1e-6,
+                                             model=LogisticRegression(penalty='l1', solver='saga',
+                                                                      tol=1e-4,
                                                                       random_state=random_state),
                                              params=['C'])
         elif model_classification == 'xgb':
@@ -79,6 +79,10 @@ def residualizeW(W, D, Z, X, Y, *,
                                                 {'learning_rate': [.01, .1, 1]},
                                                 scoring='neg_log_loss')
         # otherwise model_classification is assumed to be an estimation object
+
+        splits = list(cv.split(W, D))
+
+        print("Residualizing D...") if verbose > 0 else None
         Dres = D - fit_predict(W, D, [binary_D],
                                clone(model_regression), clone(model_classification),
                                splits, semi, n_jobs, verbose)
@@ -971,8 +975,10 @@ class ProximalDE(BaseEstimator):
                         [strength_pval, pviolation_pval, dviolation_pval, weakiv_pval],
                         [strength_crit, pviolation_crit, dviolation_crit, weakiv_crit],
                         ['statistic > critical', 'statistic < critical',
-                         'statistic < critical', 'statistic > critical']]).T
-        headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal']
+                         'statistic < critical', 'statistic > critical'],
+                         [strength > strength_crit, pviolation < pviolation_crit,
+                          dviolation < dviolation_crit, weakiv_stat > weakiv_crit]]).T
+        headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal', 'pass test']
         index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3', 'weakIV_Ftest^4']
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))

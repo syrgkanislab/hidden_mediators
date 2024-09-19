@@ -1,38 +1,41 @@
 import numpy as np
-from sklearn.linear_model import LassoCV, Lasso
-from sklearn.linear_model import MultiTaskLassoCV, MultiTaskLasso
-from sklearn.model_selection import check_cv
+from sklearn.linear_model import LassoCV, Lasso, LogisticRegressionCV, LogisticRegression
+from sklearn.model_selection import check_cv, train_test_split, GridSearchCV
+from sklearn.base import BaseEstimator, clone
 from .crossfit import fit_predict
 from .utilities import _check_input
 from proximalde.proximal import ProximalDE, estimate_nuisances, second_stage, estimate_final
 import xgboost as xgb
+from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
 
 
-def _get_ukbb_res_filenames(D_label: str, Y_label: str, save_fname_addn: str = '',
-                            res_model: str = 'lasso'):
+def _get_ukbb_res_filenames(D_label: str, Y_label: str, save_fname_addn: str):
     """
     """
-    if D_label != '' and Y_label != '':
-        save_path = f'/oak/stanford/groups/rbaltman/karaliu/bias_detection/causal_analysis/data_hm'
+    save_path = f'/oak/stanford/groups/rbaltman/karaliu/bias_detection/causal_analysis/data_hm_std'
+    
+    if Y_label in ['endo', 'preg']:
+        save_fname_addn+='_FemOnly'
+    D_label = D_label.replace('_', '')
+    Winfo = f'_Wrm{D_label}'
 
-        if res_model == 'xgb':
-            save_fname_addn += '_xgb'
-        if Y_label in ['endo', 'preg']:
-            save_fname_addn+='_FemOnly'
-        D_label = D_label.replace('_', '')
-        Winfo = f'_Wrm{D_label}'
-
-        return [f'{save_path}/Yres_{Y_label}{Winfo}{save_fname_addn}', 
-            f'{save_path}/Dres_{D_label}{save_fname_addn}',
-            f'{save_path}/Xres{Winfo}{save_fname_addn}', 
-            f'{save_path}/Zres{Winfo}{save_fname_addn}']
-    else:
-        return ['']*4
+    return [f'{save_path}/Yres_{Y_label}{Winfo}{save_fname_addn}', 
+        f'{save_path}/Dres_{D_label}{save_fname_addn}',
+        f'{save_path}/Xres{Winfo}{save_fname_addn}', 
+        f'{save_path}/Zres{Winfo}{save_fname_addn}']
 
 
-def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn: str = '',
-                 categorical=True, res_model='lasso',
-                 cv=5, semi=False, n_jobs=-1, verbose=0,
+
+def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, 
+                 save_fname_addn: str = '', *,
+                 model_regression='linear',
+                 model_classification='linear',
+                 binary_D=True,
+                 binary_Z=[],
+                 binary_X=[],
+                 binary_Y=False,
+                 cv=5, semi=False,
+                 n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
     and lasso or xgb regression models.
@@ -41,9 +44,12 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
     File names are fixed based on D_label, Y_label, and any additional info under
     save_fname_addn.
     '''
-    assert res_model in ['lasso', 'multi', 'xgb'], f"Residual W model must be of \
-        type ['lasso', 'multi', 'xgb'] but res_model={res_model}"
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
+    if D.shape[1] > 1:
+        raise AttributeError("D should be a scalar treatment")
+    if Y.shape[1] > 1:
+        raise AttributeError("Y should be a scalar outcome")
 
     if D.shape[1] > 1:
         raise AttributeError("D should be a scalar treatment")
@@ -57,54 +63,76 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
         Yres = Y - Y.mean(axis=0, keepdims=True)
         splits = None
     else:
+        model_regression_, model_classification_ = model_regression, model_classification
         #####
         # Residualizing W out of D, Z, X, Y, using cross-fitting
         # (or semi-cross-fitting) and a Lasso model with regularization
         # chosen via cross-validation
         #####
-        cv = check_cv(cv, y=D, classifier=categorical)
+        cv = check_cv(cv, y=D, classifier=False)
         if hasattr(cv, 'shuffle'):
             cv.shuffle = True
         if hasattr(cv, 'random_state'):
             cv.random_state = random_state
 
-        if res_model == 'multi':
-            model = MultiTaskLasso(random_state=random_state)
-            modelcv = MultiTaskLassoCV(random_state=random_state)
-        elif res_model == 'lasso':
-            model = Lasso(random_state=random_state)
-            modelcv = LassoCV(random_state=random_state)
-        else:
-            semi = False
-            model = None # ignored
-            modelcv = xgb.XGBRegressor(random_state=random_state, max_depth=3, learning_rate=.1,
-                                     early_stopping_rounds=50)
+        if model_regression == 'linear':
+            model_regression = CVWrapper(modelcv=LassoCV(random_state=random_state),
+                                        model=Lasso(random_state=random_state),
+                                        params=['alpha'])
+        elif model_regression == 'xgb':
+            model_regression = GridSearchCV(XGBRegressorWrapper(),
+                                            {'learning_rate': [.01, .1, 1]},
+                                            scoring='neg_root_mean_squared_error')
+        # otherwise model_regression is assumed to be an estimation object
+
+        if model_classification == 'linear':
+            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='saga',
+                                                                          scoring='neg_log_loss',
+                                                                          tol=1e-6,
+                                                                          random_state=random_state),
+                                             model=LogisticRegression(penalty='l1', solver='saga',
+                                                                      tol=1e-6,
+                                                                      random_state=random_state),
+                                            params=['C'])
+        elif model_classification == 'xgb':
+            model_classification = GridSearchCV(XGBClassifierWrapper(),
+                                                {'learning_rate': [.01, .1, 1]},
+                                                scoring='neg_log_loss')
+        # otherwise model_classification is assumed to be an estimation object
 
         splits = list(cv.split(W, D))
-        
+                
         # Need file names to save residuals if data is UKBB
-        save_fnames = _get_ukbb_res_filenames(D_label, Y_label, save_fname_addn, res_model) 
-
+        save_fnames = _get_ukbb_res_filenames(D_label, Y_label, save_fname_addn) 
         #####
         # Try loading each residual and confirming metadata aligns before 
         # recomputing
         #####
         res_list = []
-        for path, data in zip(save_fnames, [Y, D, X, Z]):
+        isbinary_Z = np.array([False] * Z.shape[1])
+        isbinary_Z[binary_Z] = True
+        isbinary_X = np.array([False] * X.shape[1])
+        isbinary_X[binary_X] = True
+        for path, data, binary in zip(save_fnames, [Y, D, X, Z], [np.array([binary_Y]), np.array([binary_D]), isbinary_X, isbinary_Z]):
             current_metadata = np.concatenate([W[splits[0][0]].mean(axis=0), 
                                                data[splits[0][0]].mean(axis=0)])
+            if np.sum(binary) > 0:
+                path += f'_Cls={model_classification_}'
+            if np.sum(~binary)> 0:
+                path += f'_Rgrs={model_regression_}'
             try:
                 saved_metadata = np.load(f'{path}_meta.npy')
-                assert np.all(saved_metadata == current_metadata), "Metadata is not the same"
+                assert np.all(saved_metadata == current_metadata), f"Metadata for {path.split('/')[-1]} is not the same"
                 res_data = np.load(f'{path}.npy')
                 assert (data.shape == res_data.shape), \
                     f"Loaded residual shape {res_data.shape} != current shape {data.shape}"
                 print(f"Loaded residual from {path.split('/')[-1]}...") if verbose > 0 else None
-            
             except FileNotFoundError:
-                print(f"Residualizing {path.split('/')[-1]}...") if verbose > 0 else None
-                res_data = data - fit_predict(W, data, modelcv, model, splits, semi, 
-                                              res_model == 'multi', n_jobs, verbose)
+                print(f"Residualizing {path.split('/')[-1]}, found {binary.sum()} binary features...") if verbose > 0 else None
+                res_data = data - fit_predict(W, data, binary, 
+                               clone(model_regression), clone(model_classification),
+                               splits, semi, n_jobs, verbose)
+
         
                 np.save(f'{path}_meta.npy', current_metadata)
                 np.save(f'{path}.npy', res_data)
@@ -123,42 +151,42 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str, save_fname_addn
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def proximal_direct_effect_ukbb(W, D, Z, X, Y, D_label: str='', Y_label: str='', 
-                           save_fname_addn: str = '', 
-                           dual_type='Z', ivreg_type='adv',
-                           alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
-                           categorical=True, cv=5, semi=True, res_model='lasso', n_jobs=-1,
-                           verbose=0, random_state=None):
-    '''
-    As in proximal.py but using residualizeW_ukbb.
-    '''
-    W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+# def proximal_direct_effect_ukbb(W, D, Z, X, Y, D_label: str='', Y_label: str='', 
+#                            save_fname_addn: str = '', 
+#                            dual_type='Z', ivreg_type='adv',
+#                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
+#                            categorical=True, cv=5, semi=True, res_model='lasso', n_jobs=-1,
+#                            verbose=0, random_state=None):
+#     '''
+#     As in proximal.py but using residualizeW_ukbb.
+#     '''
+#     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
-    if D.shape[1] > 1:
-        raise AttributeError("D should be a scalar treatment")
-    if Y.shape[1] > 1:
-        raise AttributeError("Y should be a scalar outcome")
+#     if D.shape[1] > 1:
+#         raise AttributeError("D should be a scalar treatment")
+#     if Y.shape[1] > 1:
+#         raise AttributeError("Y should be a scalar outcome")
 
-    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
-        residualizeW_ukbb(W, D, Z, X, Y, D_label, Y_label,
-                        save_fname_addn=save_fname_addn,
-                        categorical=categorical, cv=cv,
-                        semi=semi, res_model=res_model,
-                        n_jobs=n_jobs, verbose=verbose,
-                        random_state=random_state)
+#     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
+#         residualizeW_ukbb(W, D, Z, X, Y, D_label, Y_label,
+#                         save_fname_addn=save_fname_addn,
+#                         categorical=categorical, cv=cv,
+#                         semi=semi, res_model=res_model,
+#                         n_jobs=n_jobs, verbose=verbose,
+#                         random_state=random_state)
         
-    point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
-        second_stage(Dres, Zres, Xres, Yres,
-                     dual_type=dual_type, ivreg_type=ivreg_type,
-                     alpha_multipliers=alpha_multipliers,
-                     alpha_exponent=alpha_exponent,
-                     cv=cv, n_jobs=n_jobs, verbose=verbose,
-                     random_state=random_state)
+#     point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
+#         second_stage(Dres, Zres, Xres, Yres,
+#                      dual_type=dual_type, ivreg_type=ivreg_type,
+#                      alpha_multipliers=alpha_multipliers,
+#                      alpha_exponent=alpha_exponent,
+#                      cv=cv, n_jobs=n_jobs, verbose=verbose,
+#                      random_state=random_state)
 
-    # reporting point estimate and standard error of Controlled Direct Effect
-    # and R^ performance of nuisance models
-    return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
-        idstrength, idstrength_std, point_pre, std_pre
+#     # reporting point estimate and standard error of Controlled Direct Effect
+#     # and R^ performance of nuisance models
+#     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
+#         idstrength, idstrength_std, point_pre, std_pre
     
 class ProximalDE_UKBB(ProximalDE):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
@@ -168,8 +196,7 @@ class ProximalDE_UKBB(ProximalDE):
 
     def fit(self, W, D, Z, X, Y,
             D_label: str='', Y_label: str='',
-            save_fname_addn: str='',
-            Zres_idx = None, Xres_idx=None):
+            save_fname_addn: str=''):
         ''' Train the estimator
 
         Parameters
@@ -211,18 +238,14 @@ class ProximalDE_UKBB(ProximalDE):
         # residualize W from all the variables
         Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
             residualizeW_ukbb(W, D, Z, X, Y, D_label=D_label, Y_label=Y_label,
-                                save_fname_addn=save_fname_addn,
-                                categorical=self.categorical, cv=self.cv,
-                                semi=self.semi, res_model=self.res_model,
-                                n_jobs=self.n_jobs, verbose=self.verbose,
-                                random_state=self.random_state)
-
-        if Zres_idx is not None:
-            Zres = Zres[:, Zres_idx]
-            print(f"New shape: {Zres.shape}")
-        if Xres_idx is not None:
-            Xres = Xres[:, Xres_idx]
-            print(f"New shape: {Xres.shape}")
+                         model_regression=self.model_regression,
+                         save_fname_addn=save_fname_addn,
+                         model_classification=self.model_classification,
+                         binary_D=self.binary_D, binary_Z=self.binary_Z,
+                         binary_X=self.binary_X, binary_Y=self.binary_Y,
+                         cv=self.cv, semi=self.semi,
+                         n_jobs=self.n_jobs, verbose=self.verbose,
+                         random_state=self.random_state)
 
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
@@ -245,16 +268,20 @@ class ProximalDE_UKBB(ProximalDE):
         # properties of the class
         self.nobs_ = D.shape[0]
         self.pw_ = W.shape[1] if W is not None else 0
-        self.pz_ = Zres.shape[1]
-        self.px_ = Xres.shape[1]
+        self.pz_ = Z.shape[1]
+        self.px_ = X.shape[1]
+        self.model_regression_ = self.model_regression
+        self.model_classification_ = self.model_classification
+        self.binary_D_ = self.binary_D
+        self.binary_Z_ = self.binary_Z
+        self.binary_X_ = self.binary_X
+        self.binary_Y_ = self.binary_Y
         self.dual_type_ = self.dual_type
         self.ivreg_type_ = self.ivreg_type
         self.alpha_multipliers_ = self.alpha_multipliers
         self.alpha_exponent_ = self.alpha_exponent
-        self.categorical_ = self.categorical
         self.cv_ = self.cv
         self.semi_ = self.semi
-        self.res_model_ = self.res_model
         self.W_ = W
         self.D_ = D
         self.Z_ = Z

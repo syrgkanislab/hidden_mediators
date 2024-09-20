@@ -178,7 +178,7 @@ class SemiSyntheticGenerator:
         self.test_size = test_size
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None):
+    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None, resample_D = False):
         np.random.seed(self.random_state)
         if ZXYres == []:
             _, Zres, Xres, Yres, *_ = residualizeW(W, D, Z, X, Y, semi=True)
@@ -237,21 +237,24 @@ class SemiSyntheticGenerator:
         self.F_ = F
         self.s_ = S[S > critical]
 
-        if W is not None:
-            if propensity is not None:
-                self.propensity_ = propensity
-            else:
-                if self.split:
-                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
-                                                        W, D,
-                                                        cv=StratifiedKFold(5, shuffle=True, random_state=123),
-                                                        method='predict_proba')[:, 1]
+        if resample_D:
+            if W is not None:
+                if propensity is not None:
+                    self.propensity_ = propensity
                 else:
-                    lg = LogisticRegressionCV(random_state=self.random_state)
-                    self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+                    if self.split:
+                        self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
+                                                            W, D,
+                                                            cv=StratifiedKFold(5, shuffle=True, random_state=123),
+                                                            method='predict_proba')[:, 1]
+                    else:
+                        lg = LogisticRegressionCV(random_state=self.random_state)
+                        self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+            else:
+                self.propensity_ = np.mean(D[train]) * np.ones(len(test))
         else:
-            self.propensity_ = np.mean(D[train]) * np.ones(len(test))
-
+            self.propensity_ = D
+            print("using Dres")
         self.n_ = len(test)
         self.W_ = W[test] if W is not None else None
         self.D_ = D[test].flatten()

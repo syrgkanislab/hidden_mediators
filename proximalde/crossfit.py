@@ -39,7 +39,6 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
         Out-of-fold predictions for each input sample.
     '''
     model = model_classification if isbinary else model_regression
-
     if semi:
         model = clone(model).fit(X, Y)
         if not hasattr(model, 'best_estimator_'):
@@ -100,6 +99,12 @@ def fit_predict(X, Y, isbinary, model_regression, model_classification, cv, semi
         return fit_predict_single(X, Y.ravel(), isbinary[0], model_regression, model_classification,
                                   cv, semi).reshape(Y.shape)
     else:
+        if Y.shape[1] > 190:
+            print(isbinary.shape,Y.shape, X.shape, model_classification)
+            y=[(Y[:, i], isbinary[i]) for i in range(196)]
+            import ipdb; ipdb.set_trace()
+            fit_predict_single(X, Y[:, 0], isbinary[0], model_regression, model_classification,cv, semi)
+            fit_predict_single(X, Y[:, -1], isbinary[-1], model_regression, model_classification,cv, semi)
         Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(fit_predict_single)(X, Y[:, i], isbinary[i], model_regression, model_classification,
                                         cv, semi)

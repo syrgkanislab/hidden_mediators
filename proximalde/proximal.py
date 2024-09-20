@@ -64,14 +64,15 @@ def residualizeW(W, D, Z, X, Y, *,
         # otherwise model_regression is assumed to be an estimation object
 
         if model_classification == 'linear':
-            print("omg here")
 
-            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='saga',
+            model_classification = CVWrapper(modelcv=LogisticRegressionCV(penalty='l1', solver='liblinear',
                                                                           scoring='neg_log_loss',
-                                                                          tol=1e-4,
+                                                                          intercept_scaling=100,
+                                                                          tol=1e-6,
                                                                           random_state=random_state),
-                                             model=LogisticRegression(penalty='l1', solver='saga',
-                                                                      tol=1e-4,
+                                             model=LogisticRegression(penalty='l1', solver='liblinear',
+                                                                      intercept_scaling=100,
+                                                                      tol=1e-6,
                                                                       random_state=random_state),
                                              params=['C'])
         elif model_classification == 'xgb':

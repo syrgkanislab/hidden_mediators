@@ -33,7 +33,7 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
     semi : bool
         Whether semi-cross-fitting or cross-fitting will be performed.
 
-    Return:ss
+    Return:
     -------
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.
@@ -49,6 +49,14 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
         model = clone(model)
 
     if isbinary:
+        import warnings 
+        warnings.filterwarnings("ignore")   
+        for x,y in cv:
+            if Y[y].mean()==0 and Y[x].mean() != 0:
+                Y[x] = 0
+            elif Y[y].mean()==1 and Y[x].mean() != 1:
+                Y[x] = 1
+        # For rare classes, will error if Y[train] contains all 0's (or all 1's) but Y[test] doesn't
         return cross_val_predict(model, X, Y, cv=cv, method='predict_proba')[:, 1].reshape(Y.shape)
     else:
         return cross_val_predict(model, X, Y, cv=cv).reshape(Y.shape)
@@ -97,14 +105,8 @@ def fit_predict(X, Y, isbinary, model_regression, model_classification, cv, semi
     '''
     if len(Y.squeeze().shape) == 1:
         return fit_predict_single(X, Y.ravel(), isbinary[0], model_regression, model_classification,
-                                  cv, semi).reshape(Y.shape)
+                                cv, semi).reshape(Y.shape)
     else:
-        if Y.shape[1] > 190:
-            print(isbinary.shape,Y.shape, X.shape, model_classification)
-            y=[(Y[:, i], isbinary[i]) for i in range(196)]
-            import ipdb; ipdb.set_trace()
-            fit_predict_single(X, Y[:, 0], isbinary[0], model_regression, model_classification,cv, semi)
-            fit_predict_single(X, Y[:, -1], isbinary[-1], model_regression, model_classification,cv, semi)
         Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(
             delayed(fit_predict_single)(X, Y[:, i], isbinary[i], model_regression, model_classification,
                                         cv, semi)

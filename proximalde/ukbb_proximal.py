@@ -113,10 +113,6 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str,
         isbinary_Z[binary_Z] = True
         isbinary_X = np.array([False] * X.shape[1])
         isbinary_X[binary_X] = True
-        Zres = Z - fit_predict(W, Z, isbinary_Z,
-                            clone(model_regression), clone(model_classification),
-                            splits, semi, n_jobs, verbose)
-
         for path, data, binary in zip(save_fnames, [Y, D, X, Z], [np.array([binary_Y]), np.array([binary_D]), isbinary_X, isbinary_Z]):
             current_metadata = np.concatenate([W[splits[0][0]].mean(axis=0), 
                                                data[splits[0][0]].mean(axis=0)])
@@ -126,6 +122,8 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str,
                 path += f'_Rgrs={model_regression_}'
             try:
                 saved_metadata = np.load(f'{path}_meta.npy')
+                if  np.all(saved_metadata == current_metadata) == False:
+                    import ipdb; ipdb.set_trace()
                 assert np.all(saved_metadata == current_metadata), f"Metadata for {path.split('/')[-1]} is not the same"
                 res_data = np.load(f'{path}.npy')
                 assert (data.shape == res_data.shape), \

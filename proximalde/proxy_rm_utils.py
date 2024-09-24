@@ -8,10 +8,13 @@ from proximalde.proximal import ProximalDE
 import pandas as pd 
 
 class WeakProxyRemoval():
-    def __init__(self, Xres, Zres, Dres, primal_type: str = 'full', pthresh: float = .1, dthresh: float = .1):
+    def __init__(self, Xres, Zres, Dres, violation_type: str = 'est', 
+                 primal_type: str = 'full',  est_thresh: float = .1):
         self.Xres = Xres
         self.Zres = Zres 
         self.Dres = Dres
+        assert violation_type in ['est', 'full']
+        self.violation_type = violation_type
         assert primal_type in ['est', 'full']
         self.primal_type = primal_type
         self.covXD = covariance(Xres, Dres)
@@ -31,9 +34,8 @@ class WeakProxyRemoval():
         stderr_covXD = np.sqrt(np.var((Xres - Xres.mean(axis=0)) * (Dres - Dres.mean(axis=0)), axis=0) / Xres.shape[0])
         self.covXD[np.abs(self.covXD).flatten() < 2.6 * stderr_covXD] = 0
 
-        self.pthresh = pthresh
-        self.dthresh = dthresh
-
+        self.est_thresh = est_thresh
+        self.dv_est_bench = self.pv_est_bench = 0 
         DZres = np.hstack([Dres, Zres])
         self.covDDZ = covariance(DZres, Dres)
         stderr_covDDZ = np.sqrt(np.var((DZres - DZres.mean(axis=0)) * (Dres - Dres.mean(axis=0)), axis=0) / DZres.shape[0])
@@ -52,39 +54,44 @@ class WeakProxyRemoval():
         self.covDZY[1:, :] = self.covZY
         self.covDZY[0, :] = covariance(self.Dres, Yres).flatten()
 
-        self.dv_bench, self.pv_bench = self.violation(np.arange(self.Xres.shape[1]), np.arange(self.Zres.shape[1]))
-
-    # def reweight_Z(self, idx, naToOtherRatio:int = 100000):
-    #     """ UKBB specific, SHOULD DELETE after"""
-    #     Zset = (1-np.array([('Do not know' in x) or ('Prefer not to' in x) for x in self.Zint[idx]]).astype(int))
-    #     Zset = Zset*(naToOtherRatio-1)+1
-    #     # import ipdb; ipdb.set_trace()
-    #     return Zset / Zset.sum()
+        self.dv_est_bench, self.pv_est_bench = self.violation_est(np.arange(self.Xres.shape[1]), np.arange(self.Zres.shape[1]))[:2]
 
     def change_primal_type(self, primal_type):
         assert primal_type in ['est', 'full']
         self.primal_type = primal_type
-        self.dv_bench, self.pv_bench = self.violation(np.arange(self.Xres.shape[1]), np.arange(self.Zres.shape[1]))
+        self.dv_est_bench, self.pv_est_bench = self.violation_est(np.arange(self.Xres.shape[1]), np.arange(self.Zres.shape[1]))[:2]
 
-    def violation(self, remnantX, remnantZ, ord=np.inf):
+    def violation_est(self, remnantX, remnantZ):
         covXZ_tmp = self.covXZ[remnantX, :][:, remnantZ]
         covZX_tmp = covXZ_tmp.T
         covXD_tmp = self.covXD[remnantX]
         covZY_tmp = self.covZY[remnantZ]
-        dual_violation = np.linalg.norm(covXD_tmp - covXZ_tmp @ scipy.linalg.pinv(covXZ_tmp) @ covXD_tmp, ord=ord)
+        dual_violation = np.linalg.norm(covXD_tmp - covXZ_tmp @ scipy.linalg.pinv(covXZ_tmp) @ covXD_tmp, ord=np.inf)
 
         if self.primal_type != 'full':
             primal_violation = np.linalg.norm(covZY_tmp - covZX_tmp @ scipy.linalg.pinv(covZX_tmp) @ covZY_tmp, ord=np.inf)
         else:
+            
             ## more accurate primal violation
             covDXDZ_tmp = self.covDXDZ[[0] + [i + 1 for i in remnantX], :][:, [0] + [i + 1 for i in remnantZ]]
             covDZDX_tmp = covDXDZ_tmp.T
             covDZY_tmp = self.covDZY[[0] + [i + 1 for i in remnantZ]]
-            primal_violation = np.linalg.norm(covDZY_tmp - covDZDX_tmp @ scipy.linalg.pinv(covDZDX_tmp) @ covDZY_tmp, ord=ord)
+            primal_violation = np.linalg.norm(covDZY_tmp - covDZDX_tmp @ scipy.linalg.pinv(covDZDX_tmp) @ covDZY_tmp, ord=np.inf)
 
-        return dual_violation, primal_violation  
+        return dual_violation, primal_violation, self.est_thresh * self.dv_est_bench, self.est_thresh * self.pv_est_bench 
+     
+    def violation_full(self, remnantX, remnantZ):
+        est = ProximalDE(semi=True, cv=3, verbose=1, random_state=3)
+        est.fit(None, self.Dres, self.Zres[:, remnantZ], self.Xres[:, remnantX], self.Yres)
+        test_df = pd.DataFrame.from_records(est.summary().tables[2].data)
+        header = test_df.iloc[0] # grab the first row for the header
+        test_df = test_df[1:] # take the data less the header row
+        test_df.columns = header
+        primal_stat, dual_stat = test_df.statistic.iloc[1:3].to_numpy()
+        primal_crit, dual_crit = test_df['critical value'].iloc[1:3].to_numpy()
+        return [float(x) for x in [dual_stat, primal_stat, dual_crit, primal_crit]]
     
-    def xset_trial(self, it, remnantZ, verbose, gen_next='random'):
+    def xset_trial(self, it, remnantZ, verbose, only_dual):
         ''' We try to add elements to the X's in random order, while maintaining that the dual
         violation is not violated. Here we use all the Z's, since the dual violation can only
         improve if we add more Z's.
@@ -100,8 +107,8 @@ class WeakProxyRemoval():
                 while (not success) or (nfirst_pair_trials > 10):
                     # p= self.Xres[:,remnantX[-1]] @ self.Xres[:, unusedX] / self.Xres.shape[0]
                     next = np.random.choice(len(unusedX), size=min(2, len(unusedX)), replace=False)
-                    dv, pv = self.violation(remnantX + unusedX[next].tolist(), remnantZ)
-                    if dv < self.dthresh * self.dv_bench:
+                    dual, _, dual_thresh, _ = self.violation_est(remnantX + unusedX[next].tolist(), remnantZ)
+                    if dual < dual_thresh:
                         remnantX += unusedX[next].tolist()
                         success = True
                     nfirst_pair_trials += 1
@@ -111,16 +118,21 @@ class WeakProxyRemoval():
                     break
             else:
                 next = np.random.choice(len(unusedX), size=1, replace=False)
-                dv, pv = self.violation(remnantX + unusedX[next].tolist(), remnantZ)
-                if dv < self.dthresh * self.dv_bench:
+                dual, _, dual_thresh, _ = self.violation_est(remnantX + unusedX[next].tolist(), remnantZ)
+                if dual < dual_thresh:
                     remnantX += unusedX[next].tolist()
                 unusedX = np.delete(unusedX, next)
             it += 1
-
         if remnantX:
+            if self.violation_type == 'full':
+                dual, primal, dual_thresh, primal_thresh = self.violation_full(remnantX, remnantZ)
+                if only_dual and dual > dual_thresh:
+                    return
+                if not only_dual and (dual > dual_thresh or primal > primal_thresh):
+                    return
             remnantX = np.sort(remnantX)
             if verbose:
-                print(remnantX, self.violation(remnantX, remnantZ))
+                print(remnantX, self.violation_est(remnantX, remnantZ)[:2])
         
             ohe = np.zeros(self.Xres.shape[1]).astype(int)
             ohe[remnantX] = 1
@@ -129,7 +141,7 @@ class WeakProxyRemoval():
             return None
 
 
-    def zset_trial(self, it, remnantX, verbose, gen_nextZ: str = 'random'):
+    def zset_trial(self, it, remnantX, verbose):
         ''' Given a candidate X set, we try to add elements to the Z's in random order,
         while maintaining that the primal violation does not occur.
         '''
@@ -144,8 +156,8 @@ class WeakProxyRemoval():
                 nfirst_pair_trials = 0
                 while (not success) or (nfirst_pair_trials > 10):
                     next = np.random.choice(len(unusedZ), size=min(2, len(unusedZ)), replace=False)
-                    dv, pv = self.violation(remnantX, remnantZ + unusedZ[next].tolist())
-                    if pv < self.pthresh * self.pv_bench:
+                    _, primal, _, primal_thresh = self.violation_est(remnantX, remnantZ + unusedZ[next].tolist())
+                    if primal < primal_thresh:
                         remnantZ += unusedZ[next].tolist()
                         success = True
                     nfirst_pair_trials += 1
@@ -155,16 +167,21 @@ class WeakProxyRemoval():
                     break
             else:
                 next = np.random.choice(len(unusedZ), size=1, replace=False)
-                dv, pv = self.violation(remnantX, remnantZ + unusedZ[next].tolist())
-                if pv < self.pthresh * self.pv_bench:
+                _, primal, _, primal_thresh = self.violation_est(remnantX, remnantZ + unusedZ[next].tolist())
+                if primal < primal_thresh:
                     remnantZ += unusedZ[next].tolist()
                 unusedZ = np.delete(unusedZ, next)
             it += 1
 
         if remnantZ:
+            if self.violation_type == 'full':
+                dual, primal, dual_thresh, primal_thresh = self.violation_full(remnantX, remnantZ)
+                if dual > dual_thresh or primal > primal_thresh:
+                    return
+            
             remnantZ = np.sort(remnantZ)
         
-            dv, pv = self.violation(remnantX, remnantZ)
+            dv, pv = self.violation_est(remnantX, remnantZ)[:2]
             if verbose:
                 print(remnantZ, dv, pv)
         
@@ -182,25 +199,24 @@ class WeakProxyRemoval():
             #             p = 1 / np.abs(p).mean(axis=0)
             #             p = p/p.sum()
     def find_candidate_sets(self, ntrials, verbose=0, n_jobs=-1, 
-                            # gen_nextZ='random', gen_nextX='random',
-                            save_dir='', niters=2, unique_Zsets=[]):
-        if unique_Zsets == []:
-            unique_Zsets = np.array([np.ones(self.Zres.shape[1])]).astype(int)
-        else:
-            assert type(unique_Zsets) == np.ndarray and \
-                unique_Zsets.dtype == np.int64 and len(unique_Zsets[0] == self.Zres.shape[1])
-            
+                            save_dir='', niters=2, second_xset_thresh=2):
+        unique_Zsets = np.array([np.ones(self.Zres.shape[1])]).astype(int)
+
         for j in range(niters):
             # we generate a set of candidate of maximal X sets such that the dual violation does not
             # occur, when we use all the Z's. Note that more Z's can only help the dual.
             candidateX = []
             for remnantZ in tqdm(unique_Zsets):
                 remnantZ = np.argwhere(remnantZ).flatten()
-                candidateX += Parallel(n_jobs=n_jobs, verbose=verbose)(delayed(self.xset_trial)(it, remnantZ, verbose)
+                if second_xset_thresh == 2:
+                    only_dual = (j==0)
+                else:
+                    only_dual = True
+                candidateX += Parallel(n_jobs=n_jobs, verbose=verbose)(delayed(self.xset_trial)(it, remnantZ, verbose, only_dual=only_dual)
                                                                 for it in range(ntrials))
             candidateX = [c for c in candidateX if c is not None]
             if not candidateX:
-                return []
+                    return []
 
             candidateX = np.array(candidateX).astype(int)
             # we clean up to keep only the unique solutions
@@ -236,10 +252,11 @@ class WeakProxyRemoval():
         for unique_XZ in unique_XZsets:
             Xset = np.argwhere(unique_XZ[:self.Xres.shape[1]]).flatten()
             Zset = np.argwhere(unique_XZ[self.Xres.shape[1]:]).flatten()
-            dv, pv = self.violation(Xset, Zset)
-            if verbose:
-                print(Xset, Zset, dv, pv)
-            if pv < self.pthresh * self.pv_bench and dv < self.dthresh * self.dv_bench:
+            if self.violation_type == 'full':
+                dual, primal, dual_thresh, primal_thresh = self.violation_full(remnantX, remnantZ)
+            else:
+                dual, primal, dual_thresh, primal_thresh = self.violation_est(remnantX, remnantZ)
+            if dual < dual_thresh and primal < primal_thresh:
                 final_candidates += [(Xset, Zset)]
         
         if verbose:

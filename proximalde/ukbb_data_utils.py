@@ -69,11 +69,14 @@ def load_ukbb_res_data(D_label, Y_label):
     print("Assuming D,Y,Z all treated as continuous, using linear regression of W")
     _get_path = lambda fname: f'/oak/stanford/groups/rbaltman/karaliu/bias_detection/causal_analysis/data_hm_std/{fname}'
     D_label = D_label.replace('_', '')
+    save_fname_addn = ''
+    if Y_label in ['endo', 'preg']:
+        save_fname_addn='_FemOnly'
     Winfo = f'_Wrm{D_label}'
-    Yres = np.load(_get_path(f'Yres_{Y_label}{Winfo}_Rgrs=linear.npy')) 
-    Dres = np.load(_get_path(f'Dres_{D_label}_Rgrs=linear.npy')) 
-    Xres = np.load(_get_path(f'Xres{Winfo}_Rgrs=linear.npy')) 
-    Zres = np.load(_get_path(f'Zres{Winfo}_Rgrs=linear.npy')) 
+    Yres = np.load(_get_path(f'Yres_{Y_label}{Winfo}{save_fname_addn}_Rgrs=linear.npy')) 
+    Dres = np.load(_get_path(f'Dres_{D_label}{save_fname_addn}_Rgrs=linear.npy')) 
+    Xres = np.load(_get_path(f'Xres{Winfo}{save_fname_addn}_Rgrs=linear.npy')) 
+    Zres = np.load(_get_path(f'Zres{Winfo}{save_fname_addn}_Rgrs=linear.npy')) 
     return Xres, Zres, Yres, Dres
 
 
@@ -156,9 +159,8 @@ def load_ukbb_data(D_label: str, Y_label: str):
     D_df = pd.read_csv(UKBB_DATA_DIR + 'updated_sa_df_pp.csv')
     D = D_df[D_label].to_numpy()     
     Y = pd.read_csv(UKBB_DATA_DIR + 'updated_Y_labels.csv')[Y_label].to_numpy()[:,None] 
-
     # For female-only diagnosis, only analyze female subppopulation 
-    if Y_label in ['endo', 'prg']: 
+    if Y_label in ['endo', 'preg']: 
         assert D_label != 'Female'
         female = D_df['Female'].astype(bool)
         W = W[female]

@@ -60,10 +60,15 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
                            
-def gen_multi_data(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
+def gen_multi_data(n, pw, pz, px, a, b, c, d, e, f, g, 
+                   sm=1, sz=1, sx=1, sy=1, pm=1, invalidZinds=[0], invalidXinds=[0],
+                   dx_path=False, zy_path=False):
     ''' IN PROGRESS: Will be a more "realistic" version of 
-    synthetic data. Now the mediator is multi-dimensional (takes pm
-    non-zero discrete values and zero).
+    synthetic data for debugging purposes.
+    Now the mediator is multi-dimensional (takes pm
+    non-zero discrete values) and W is included in the linear
+    model. Dx and Zy paths are optional to add on for 
+    violating mediator assumptions. 
 
     n: number of samples
     pw: dimension of controls
@@ -77,13 +82,27 @@ def gen_multi_data(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1
     f : strength of M -> X edge
     g : strength of X -> Y edge
     '''
+    sm = 2
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, scipy.special.expit(2 * np.mean(W[:,1:], axis=1)))
-    M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1))) + np.random.binomial(1, scipy.special.expit(2 * W[:,0]))
-    M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
-    Z = M @ E + d * D.reshape(-1, 1) + sz * (np.random.normal(0, 1, (n, pz)) + np.mean(W,axis=1)[:,None])
-    X = M @ F + sx * (np.mean(W,axis=1)[:,None] + np.random.normal(0, 1, (n, px)))
-    Y = b * np.mean(M, axis=1) + c * D + g * np.mean(X, axis=1) + sy * (np.random.normal(0, 1, n) + np.mean(W[:,1:],axis=1))
+    M = a * D + W[:,0] + sm * np.random.normal(0, 1, (n,))
+    Mp = a * D + W[:,0] + sm * np.random.normal(0, 1, (n,))
+    
+    Z = np.zeros((n, pz))
+    Z = (e * M + d * D + W[:,0]).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
+    if dx_path:
+        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+        X[:, invalidXinds] += f * Mp.reshape(-1, 1)
+    else:
+        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    X += W[:,0].reshape(-1, 1)
+
+    Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
+    if zy_path:
+        Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    else:
+        Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+    Y += W[:,0]
     return W, D, M, Z, X, Y
 
 def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
@@ -156,7 +175,6 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
         
     Z = np.zeros((n, pz))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
-    print("Here!")
     if dx_path:
         X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
         X[:, invalidXinds] += f * Mp.reshape(-1, 1)
@@ -178,7 +196,17 @@ class SemiSyntheticGenerator:
         self.test_size = test_size
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None, resample_D = False):
+    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None, resample_D = True):
+        """ 
+        ZXYres: optional list of numpy arrays 
+        if Z, X, Y residualized separately, can pass [Zres, Xres, Yres] 
+        as precomputed
+        propensity: optional E[D | W] if precomputed
+        resample_D: bool, default True
+        default is to sample D ~ E[D|W]; 
+        if False, will set propensity (of D) to be the mean of real data D
+        """
+        
         np.random.seed(self.random_state)
         if ZXYres == []:
             _, Zres, Xres, Yres, *_ = residualizeW(W, D, Z, X, Y, semi=True)
@@ -198,6 +226,7 @@ class SemiSyntheticGenerator:
         U, S, Vh = scipy.linalg.svd(covariance(Zres[train], Xres[train]), full_matrices=False)
         # We find the statistically no-zero singular values and corresponding sub-spaces
         critical = svd_critical_value(Zres[train], Xres[train])
+        print(critical)
         G = U[:, S > critical]
         F = Vh[S > critical, :].T
 
@@ -237,24 +266,21 @@ class SemiSyntheticGenerator:
         self.F_ = F
         self.s_ = S[S > critical]
 
-        if resample_D:
-            if W is not None:
-                if propensity is not None:
-                    self.propensity_ = propensity
-                else:
-                    if self.split:
-                        self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
-                                                            W, D,
-                                                            cv=StratifiedKFold(5, shuffle=True, random_state=123),
-                                                            method='predict_proba')[:, 1]
-                    else:
-                        lg = LogisticRegressionCV(random_state=self.random_state)
-                        self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+        if resample_D and W is not None:
+            if propensity is not None:
+                self.propensity_ = propensity
             else:
-                self.propensity_ = np.mean(D[train]) * np.ones(len(test))
+                if self.split:
+                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
+                                                        W, D,
+                                                        cv=StratifiedKFold(5, shuffle=True, random_state=123),
+                                                        method='predict_proba')[:, 1]
+                else:
+                    lg = LogisticRegressionCV(random_state=self.random_state)
+                    self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
         else:
-            self.propensity_ = D
-            print("using Dres")
+            self.propensity_ = np.mean(D[train]) * np.ones(len(test))
+        
         self.n_ = len(test)
         self.W_ = W[test] if W is not None else None
         self.D_ = D[test].flatten()

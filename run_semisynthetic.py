@@ -5,6 +5,9 @@ from proximalde.proximal import ProximalDE
 from proximalde.gen_data import SemiSyntheticGenerator
 from proximalde.ukbb_data_utils import *
 import argparse 
+import pickle as pk
+from tqdm import tqdm
+
 
 def minmax(M):
     Mmin =  M.min(axis=0,keepdims=True)
@@ -66,10 +69,10 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
 
+    ### Get data 
     D_label = 'Obese'
     Y_label = 'back'
     W, W_binary, W_feats, X, X_binary, X_feats, Z, Z_binary, Z_feats, Y, D = load_ukbb_data(D_label=D_label, Y_label=Y_label)
-
     _, X_feats, _, Z_feats = load_ukbb_XZ_data()
     Xint = get_int_feats(X_feats)
     Zint = get_int_feats(Z_feats)
@@ -79,12 +82,13 @@ if __name__ == '__main__':
     Zint = Zint[~bad_idx]
     Z = Z[:, ~bad_idx]
     Z_binary = Z_binary[~bad_idx]
-    print(Zres.shape)
-    np.random.seed(0)
-    generator = SemiSyntheticGenerator(split=True)
+    if args.make_Z_binary:
+        Z[:,Z_binary] += .5
+
+    generator = SemiSyntheticGenerator(split=True,random_state=123)
     generator.fit(W, D, Z, X, Y, ZXYres=[Zres, Xres, Yres],
                 resample_D=not args.use_Dreal, propensity=np.load('propensity.npy'))
-
+    
     nsamples = 50000
     a = 1.0  # a*b is the indirect effect through mediator
     b = 1.0
@@ -96,24 +100,15 @@ if __name__ == '__main__':
 
 
     results = []
-    i = 100
-    saved = 0
     print(args)
-    from tqdm import tqdm
-    pbar = tqdm(total = saved)
+    fpath = f'./results/semisynthetic/results_Dreal{args.use_Dreal}_Zbinary{args.make_Z_binary}_ClsfZ{args.classify_Z}_SmpZ{args.sample_Z_binary}_Clsf{args.model_clsf}_Dbinary{args.binary_D}.pkl'
+    for i in tqdm(range(args.niters)):
+        results.append(proximal_est(i,generator,nsamples,a,b,c,g,make_Z_binary=args.make_Z_binary, 
+                                    model_classification=args.model_clsf, binary_D=args.binary_D,
+                                    classify_Z=args.classify_Z, sample_Z_binary=args.sample_Z_binary))
+        if i % 10 == 0:
+            pk.dump(results,open(fpath, 'wb'))
 
-    while saved < args.iters:
-        try:
-            results.append(proximal_est(i,generator,nsamples,a,b,c,g,make_Z_binary=args.make_Z_binary, 
-                                        model_classification=args.model_clsf, binary_D=args.binary_D,
-                                        classify_Z=args.classify_Z, sample_Z_binary=args.sample_Z_binary))
-            saved += 1
-            i += 1
-            pbar.update(1)
-        except ValueError as e:
-            print(e)
-            i += 1
     print(args)
-    import pickle as pk
-    pk.dump(results,open(f'./results/semisynthetic/results_Dreal{args.use_Dreal}_Zbinary{args.make_Z_binary}_ClsfZ{args.classify_Z}_SmpZ{args.sample_Z_binary}_Clsf{args.model_clsf}_Dbinary{args.binary_D}.pkl', 'wb'))
+    pk.dump(results, open(fpath, 'wb'))
     print(1/0)

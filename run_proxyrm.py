@@ -18,22 +18,23 @@ if __name__ == "__main__":
     parser.add_argument('--D_label', type=str, required=True, help='D_label for dataset loading')
     parser.add_argument('--rm_na_Z', action='store_true', help='Remove Z feats with NA answers')
     parser.add_argument('--fem_only', action='store_true')
+    parser.add_argument('--rerun', action='store_true')
     parser.add_argument('--violation_type', type=str, default='full', help='')
 
     args = parser.parse_args()
     D_label = args.D_label
     X, X_feats, Z, Z_feats = load_ukbb_XZ_data()
     Xint = get_int_feats(X_feats)
-    Zint = get_int_feats(Z_feats)
+    Zint_ = get_int_feats(Z_feats)
 
     if not args.fem_only:
         Xres, Zres, _, Dres = load_ukbb_res_data(D_label, Y_label='OA')
 
         rmnaZ = ''
         if args.rm_na_Z:
-            bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint])
+            bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint_])
             Zres = Zres[:,~bad_idx]
-            Zint = Zint[~bad_idx]
+            Zint = Zint_[~bad_idx]
             rmnaZ = 'rmNaZ_'
             print(Zres.shape)
         prm = WeakProxyRemoval(Xres,Zres,Dres,est_thresh=args.est_thresh,
@@ -41,46 +42,24 @@ if __name__ == "__main__":
         prm.Xint = Xint
         prm.Zint = Zint
         prm.D_label = D_label
-    rerun = ['Female_mgrn',
-    'Female_mela',
-    'Obese_RA',
-    'Obese_infl',
-    'Obese_copd',
-    'Obese_chrkd',
-    'Obese_mgrn',
-    'Obese_mela',
-    'Obese_preg',
-    'Obese_endo',
-    'Black_deprs',
-    'Black_RA',
-    'Black_copd',
-    'Black_mela',
-    'Black_preg',
-    'Black_endo',
-    'Asian_infl',
-    'Asian_copd',
-    'Asian_mgrn',
-    'Asian_mela',
-    'Asian_preg',
-    'Asian_endo']
+    rerun = ['No_priv_insr_endo', 'Low_inc_infl', 'Low_inc_mela', 'No_priv_insr_copd', 'No_priv_insr_mela']
     Y_labels = ['OA', 'myoc','deprs', 'back', 'RA', 'fibro', 'infl', 'copd','chrkd','mgrn','mela']
     if args.fem_only:
         Y_labels = ['preg', 'endo']
-    # for Y_label in tqdm(['OA','myoc', 'deprs', 'back', 'RA']):
-    # for Y_label in tqdm(['RA', 'fibro', 'infl', 'copd','chrkd','mgrn','mela', 'preg', 'endo']):
     for Y_label in tqdm(Y_labels):
+        if args.rerun:
+            if f'{D_label}_{Y_label}' not in rerun:
+                continue
 
-        if f'{D_label}_{Y_label}' not in rerun:
-            continue
         try:
             print(Y_label)
             if args.fem_only:
                 Xres, Zres, Yres, Dres = load_ukbb_res_data(D_label, Y_label)
                 rmnaZ = ''
                 if args.rm_na_Z:
-                    bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint])
+                    bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint_])
                     Zres = Zres[:,~bad_idx]
-                    Zint = Zint[~bad_idx]
+                    Zint = Zint_[~bad_idx]
                     rmnaZ = 'rmNaZ_'
                     print(Zres.shape)
                 prm = WeakProxyRemoval(Xres,Zres,Dres,est_thresh=args.est_thresh,
@@ -114,5 +93,5 @@ if __name__ == "__main__":
                 idx_list = np.random.choice(np.arange(len(candidates)), 
                                             replace=False, size=min(len(candidates), args.nest))
                 prm.get_estimates(candidates, idx_list=idx_list, save_dir=save_dir, calc_rank=False, verbose=1, npass=2)
-        except Exception as e:
+        except ZeroDivisionError as e:
             print(e)

@@ -4,7 +4,7 @@ from sklearn.model_selection import check_cv, train_test_split, GridSearchCV
 from sklearn.base import BaseEstimator, clone
 from .crossfit import fit_predict
 from .utilities import _check_input
-from proximalde.proximal import ProximalDE, estimate_nuisances, second_stage, estimate_final
+from proximalde.proximal import ProximalDE, estimate_nuisances, second_stage, residualizeW, estimate_final
 import xgboost as xgb
 from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
 
@@ -122,8 +122,8 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str,
                 path += f'_Rgrs={model_regression_}'
             try:
                 saved_metadata = np.load(f'{path}_meta.npy')
-                if  np.all(saved_metadata == current_metadata) == False:
-                    import ipdb; ipdb.set_trace()
+                assert  np.all(saved_metadata == current_metadata) == True#:
+                    # import ipdb; ipdb.set_trace()
                 assert np.all(saved_metadata == current_metadata), f"Metadata for {path.split('/')[-1]} is not the same"
                 res_data = np.load(f'{path}.npy')
                 assert (data.shape == res_data.shape), \
@@ -152,44 +152,6 @@ def residualizeW_ukbb(W, D, Z, X, Y, D_label: str, Y_label: str,
 
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
-
-# def proximal_direct_effect_ukbb(W, D, Z, X, Y, D_label: str='', Y_label: str='', 
-#                            save_fname_addn: str = '', 
-#                            dual_type='Z', ivreg_type='adv',
-#                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
-#                            categorical=True, cv=5, semi=True, res_model='lasso', n_jobs=-1,
-#                            verbose=0, random_state=None):
-#     '''
-#     As in proximal.py but using residualizeW_ukbb.
-#     '''
-#     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
-
-#     if D.shape[1] > 1:
-#         raise AttributeError("D should be a scalar treatment")
-#     if Y.shape[1] > 1:
-#         raise AttributeError("Y should be a scalar outcome")
-
-#     Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
-#         residualizeW_ukbb(W, D, Z, X, Y, D_label, Y_label,
-#                         save_fname_addn=save_fname_addn,
-#                         categorical=categorical, cv=cv,
-#                         semi=semi, res_model=res_model,
-#                         n_jobs=n_jobs, verbose=verbose,
-#                         random_state=random_state)
-        
-#     point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
-#         second_stage(Dres, Zres, Xres, Yres,
-#                      dual_type=dual_type, ivreg_type=ivreg_type,
-#                      alpha_multipliers=alpha_multipliers,
-#                      alpha_exponent=alpha_exponent,
-#                      cv=cv, n_jobs=n_jobs, verbose=verbose,
-#                      random_state=random_state)
-
-#     # reporting point estimate and standard error of Controlled Direct Effect
-#     # and R^ performance of nuisance models
-#     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
-#         idstrength, idstrength_std, point_pre, std_pre
-    
 class ProximalDE_UKBB(ProximalDE):
     ''' Estimate Controlled Direct Effect using Proximal Causal Inference.
         Inherits most functionality from ProximalDE. 
@@ -198,7 +160,8 @@ class ProximalDE_UKBB(ProximalDE):
 
     def fit(self, W, D, Z, X, Y,
             D_label: str='', Y_label: str='',
-            save_fname_addn: str=''):
+            save_fname_addn: str='', 
+            Zset = None, Xset = None, bad_idx = None):
         ''' Train the estimator
 
         Parameters
@@ -238,7 +201,18 @@ class ProximalDE_UKBB(ProximalDE):
             raise AttributeError("Y should be a scalar outcome")
 
         # residualize W from all the variables
-        Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
+        if D_label == '' and Y_label == '':
+            Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
+            residualizeW(W, D, Z, X, Y,
+                         model_regression=self.model_regression,
+                         model_classification=self.model_classification,
+                         binary_D=self.binary_D, binary_Z=self.binary_Z,
+                         binary_X=self.binary_X, binary_Y=self.binary_Y,
+                         cv=self.cv, semi=self.semi,
+                         n_jobs=self.n_jobs, verbose=self.verbose,
+                         random_state=self.random_state)
+        else:
+            Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
             residualizeW_ukbb(W, D, Z, X, Y, D_label=D_label, Y_label=Y_label,
                          model_regression=self.model_regression,
                          save_fname_addn=save_fname_addn,
@@ -248,6 +222,10 @@ class ProximalDE_UKBB(ProximalDE):
                          cv=self.cv, semi=self.semi,
                          n_jobs=self.n_jobs, verbose=self.verbose,
                          random_state=self.random_state)
+        
+        if Xset is not None:
+            X, Xres = X[:,Xset], Xres[:,Xset]
+            Z, Zres = Z[:,~bad_idx][:,Zset], Zres[:,~bad_idx][:,Zset]
 
         # estimate the nuisance coefficients that solve the moments
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0

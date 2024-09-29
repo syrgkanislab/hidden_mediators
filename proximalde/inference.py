@@ -2,7 +2,7 @@ import numpy as np
 from statsmodels.iolib.summary import Summary
 from statsmodels.iolib.table import SimpleTable
 from scipy.stats import norm
-
+import pandas as pd
 
 def _format(res, decimals):
     arr = np.array([[res]]) if np.isscalar(res) else res.reshape(-1, 1)
@@ -103,7 +103,7 @@ class EmpiricalInferenceResults:
         # is equal to the value tested, return nan
         return np.where(np.all(self.point_dist == value, axis=0), np.nan, pvalue)
 
-    def summary(self, *, alpha=0.05, pivot=False, value=0, decimals=3):
+    def summary(self, *, alpha=0.05, pivot=False, value=0, decimals=3, save_dir='', save_fname_addn=''):
         ''' Summarize all the inference results.
 
         TODO. Update presentation of p-value if other variants of p-values
@@ -124,4 +124,6 @@ class EmpiricalInferenceResults:
             index = [f"param{t}" for t in range(len(self.point))]
 
         sm.tables.append(SimpleTable(res, headers, index, "Parameter Summary"))
+        if save_dir != '': # TO DO: DELETE SAVE_FNAME_ADDN AFTER UKBB EXPERIMENTS RUN
+            pd.DataFrame(sm.tables[0]).to_csv(save_dir + f'/table0{save_fname_addn}.csv')
         return sm

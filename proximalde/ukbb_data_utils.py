@@ -125,15 +125,15 @@ def _load_ukbb_W(D_label: str):
     
     Dlabel_to_fid = {'Female':[31], 'Black':[21000], 
                      'Obese': [21002], 'Asian': [21000], 
-                     'White': [21000], 'Low_inc': [738, 6138, 6146, 4674], 
-                     'On_dis': [6146], 'No_uni': [6138], 
+                     'White': [21000], 'Low_inc': [738, 6138, 6146], 
+                     'On_dis': [6146, 6138, 738], 'No_uni': [6138, 738, 6146], 
                      'No_priv_insr': [4674]} #fid is the ID # of a feature in UKBB
     keep_W_idx = [int(f.split('.')[1]) not in Dlabel_to_fid[D_label] for f in all_D_feats]
     W = np.concatenate([W, all_D_data[:,keep_W_idx]], axis=1)
     W_binary = np.concatenate([W_binary, all_D_binary[keep_W_idx]])
     W_feats = np.concatenate([W_feats, all_D_feats[keep_W_idx]])
     return W, W_binary, W_feats
-
+    
 def load_ukbb_data(D_label: str, Y_label: str):
     """
     

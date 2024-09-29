@@ -271,9 +271,9 @@ class SemiSyntheticGenerator:
                 self.propensity_ = propensity
             else:
                 if self.split:
-                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state),
+                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state, solver='saga',n_jobs=-1),
                                                         W, D,
-                                                        cv=StratifiedKFold(5, shuffle=True, random_state=123),
+                                                        cv=StratifiedKFold(3, shuffle=True, random_state=123),
                                                         method='predict_proba')[:, 1]
                 else:
                     lg = LogisticRegressionCV(random_state=self.random_state)

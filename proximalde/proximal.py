@@ -310,6 +310,7 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
         eta, gamma, inf, Dbar, Ybar
 
 
+### TODO: Seems like a lot of duplicated code with fit()? Is there a way to merge?
 def proximal_direct_effect(W, D, Z, X, Y, *,
                            model_regression='linear',
                            model_classification='linear',
@@ -922,7 +923,7 @@ class ProximalDE(BaseEstimator):
         strength_crit = np.round(dist.ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
-    def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4, save_dir=''):
+    def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4, save_dir='', save_fname_addn=''):
         '''
         Parameters
         ----------
@@ -1019,9 +1020,9 @@ class ProximalDE(BaseEstimator):
             'it does not account for the estimation error of the projection matrix that goes into Q. '
             'So in that case the test can potentially be artificially large.'])
 
-        if save_dir != '':
+        if save_dir != '': # TO DO: DELETE SAVE_FNAME_ADDN AFTER UKBB EXPERIMENTS RUN
             for i in range(len(sm.tables)):
-                pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}.csv')
+                pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}{save_fname_addn}.csv')
         return sm
 
     def run_diagnostics(self):
@@ -1186,6 +1187,8 @@ class ProximalDE(BaseEstimator):
         points, *_ = zip(*results)
         return np.array(points), subsamples
 
+    # TODO: a bit difficult to incorporate with 1) precomputed residuals and 
+    # 2) Xsets and Zsets chosen as the subsets of proxyrm from the original saved residuals 
     def subsample_all_stages(self, *,
                              n_subsamples=1000,
                              fraction=.5,
@@ -1193,7 +1196,7 @@ class ProximalDE(BaseEstimator):
                              n_jobs=-1,
                              verbose=0,
                              random_state=None):
-        self._check_is_fitted()
+        self._check_is_fitted() 
 
         if self.W_ is None:
             raise AttributeError("No first stage was fitted because `W=None`.")
@@ -1264,7 +1267,7 @@ class ProximalDE(BaseEstimator):
             each point in `results.point_dist`. Only returned if
             `return_subsamples=True`
         '''
-        self._check_is_fitted()
+        # self._check_is_fitted()
 
         if stage == 3:
             method = self.subsample_third_stage

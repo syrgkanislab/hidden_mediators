@@ -86,7 +86,7 @@ def _preprocess_data(data, is_binary):
     data[:,~is_binary] = StandardScaler().fit_transform(data[:,~is_binary])
     return data 
 
-def _load_ukbb_data(fname: str):
+def _load_ukbb_data(fname: str, pp: bool = True):
     """
     
     Loads numpy dataset and corresponding feature list.
@@ -105,10 +105,11 @@ def _load_ukbb_data(fname: str):
     assert np.isnan(data).sum() == 0, 'NaN values cannot exist in data'
     
     is_binary = is_matrix_binary(data)
-    data = _preprocess_data(data, is_binary)
+    if pp:
+        data = _preprocess_data(data, is_binary)
     return data, is_binary, feats
     
-def _load_ukbb_W(D_label: str):
+def _load_ukbb_W(D_label: str, pp: bool = True):
     """
     
     Loads the confounder / sociodemographic data and feats.
@@ -116,12 +117,13 @@ def _load_ukbb_W(D_label: str):
         remove D_label data.
         
     """      
-    W, W_binary, W_feats = _load_ukbb_data(fname = f'dem')
+    W, W_binary, W_feats = _load_ukbb_data(fname = f'dem', pp = pp)
 
     all_D_data = np.load(f'{UKBB_DATA_DIR}/potD_data.npy')
     all_D_feats = np.load(f'{UKBB_DATA_DIR}/potD_feats.npy')
     all_D_binary = is_matrix_binary(all_D_data)
-    all_D_data = _preprocess_data(all_D_data, all_D_binary)
+    if pp:
+        all_D_data = _preprocess_data(all_D_data, all_D_binary)
     
     Dlabel_to_fid = {'Female':[31], 'Black':[21000], 
                      'Obese': [21002], 'Asian': [21000], 
@@ -134,7 +136,7 @@ def _load_ukbb_W(D_label: str):
     W_feats = np.concatenate([W_feats, all_D_feats[keep_W_idx]])
     return W, W_binary, W_feats
     
-def load_ukbb_data(D_label: str, Y_label: str):
+def load_ukbb_data(D_label: str, Y_label: str, pp: bool = True):
     """
     
     Loads all UK Biobank data.
@@ -151,10 +153,10 @@ def load_ukbb_data(D_label: str, Y_label: str):
         
     """
 
-    Z, Z_binary, Z_feats = _load_ukbb_data(fname = 'srMntSlp')
-    X, X_binary, X_feats = _load_ukbb_data(fname = 'biomMed')
+    Z, Z_binary, Z_feats = _load_ukbb_data(fname = 'srMntSlp', pp = pp)
+    X, X_binary, X_feats = _load_ukbb_data(fname = 'biomMed', pp = pp)
     
-    W, W_binary, W_feats = _load_ukbb_W(D_label)
+    W, W_binary, W_feats = _load_ukbb_W(D_label, pp = pp)
 
     D_df = pd.read_csv(UKBB_DATA_DIR + 'updated_sa_df_pp.csv')
     D = D_df[D_label].to_numpy()     

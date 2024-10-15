@@ -19,16 +19,18 @@ import pickle as pk
 import os 
 
 from proximalde.ukbb_proximal import ProximalDE_UKBB
-def run_inf_rm(D_label, Y_label, inf_idxs, Xset, Zset, save_dir):
+def run_inf_rm(D_label, Y_label, inf_idxs, Xset, Zset, save_dir, save_fname_addn=''):
     np.random.seed(4)
     W, _, W_feats, X, X_binary, X_feats, Z, Z_binary, Z_feats, Y, D = load_ukbb_data(D_label=d, Y_label=y)
     Z = Z[:,~bad_idx][:,Zset]
     X = X[:,Xset]
+    print(D_label, Y_label, save_fname_addn)
     est = ProximalDE_UKBB(binary_D=False, semi=True, cv=3, verbose=1, random_state=3)
     est.fit(np.delete(W, inf_idxs, axis=0), np.delete(D, inf_idxs, axis=0),
              np.delete(Z, inf_idxs, axis=0), np.delete(X, inf_idxs, axis=0),
-             np.delete(Y, inf_idxs, axis=0), D_label=D_label, Y_label=Y_label, save_fname_addn=f'_infRm_{D_label}{Y_label}') 
-    return est.summary(alpha=0.05, save_dir=save_dir,save_fname_addn='_infRm')
+             np.delete(Y, inf_idxs, axis=0), D_label=D_label, Y_label=Y_label, save_fname_addn=f'_infRm_{D_label}{Y_label}{save_fname_addn}') 
+    print(D_label, Y_label, save_fname_addn)
+    return est.summary(alpha=0.05, save_dir=save_dir,save_fname_addn=f'_infRm{save_fname_addn}')
 
 def rmNaZ(Zres, Zint):
     bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint])
@@ -48,28 +50,24 @@ def get_median_item(y):
     else:
         return y[srt_idx[len(y)//2]], srt_idx[len(y)//2]
 
-ss_dy = pk.load(open('ss_dy.pkl', 'rb'))
+ss_dy = pk.load(open('ss_dy_updated_inf.pkl', 'rb'))
+# ss_dy = pk.load(open('ss_dy.pkl', 'rb'))
 X, X_feats, Z, Z_feats = load_ukbb_XZ_data()
 Xint = get_int_feats(X_feats)
 Zint_ = get_int_feats(Z_feats)
 bad_idx = np.array([('Do not know' in x) or ('Prefer not to' in x) for x in Zint_])
 
 n_ss=0
-for dy in list(ss_dy.keys()):
-    points= np.array([x[0].point.iloc[0] for x in ss_dy[dy]])
-    m, idx = get_median_item(points)
-    print(dy, m)
-    if np.abs(m) > .02:
-        n_ss+=1
-        print(dy)
+# for dy in list(ss_dy.keys()):
+# for dy in ['Female_myoc']:
+# for dy in ['Low_inc_deprs']:
+for dy in ['On_dis_RA']:
+    point, test, inf_dict, path, (Xset, Zset) = ss_dy[dy]
+    for name in ['n=200', 'switch_sign']:
+        inds = inf_dict[name]  
         d, y = '_'.join(dy.split('_')[:-1]), dy.split('_')[-1]
-        Xset, Zset = ss_dy[dy][idx][-1]
-
-        path = ss_dy[dy][idx][-2]
-        inds = ss_dy[dy][idx][-3]
-
-        if os.path.exists(path + '/table0_infRm.csv'):
+        if os.path.exists(path + f'/table0_infRm_{name}.csv'):
             pass
         else:
-            run_inf_rm(D_label=d, Y_label=y, inf_idxs=inds, Xset=Xset, Zset=Zset, save_dir=path)
+            run_inf_rm(D_label=d, Y_label=y, inf_idxs=inds, Xset=Xset, Zset=Zset, save_dir=path, save_fname_addn='_'+name)
 

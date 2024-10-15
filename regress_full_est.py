@@ -41,10 +41,10 @@ if __name__ == '__main__':
     clsf = ''
     if np.any([Dbin, Ybin, XZbin]):
         clsf=f'_Cls={model_classification}'
-    for Y_label in tqdm(['OA', 'myoc','deprs', 'back', 'RA', 'fibro', 'infl', 'copd','chrkd','mgrn','mela','preg', 'endo']):
+#     for Y_label in tqdm(['OA', 'myoc','deprs', 'back', 'RA', 'fibro', 'infl', 'copd','chrkd','mgrn','mela','preg', 'endo']):
+    for dy in tqdm(['On_dis_RA',  'Obese_OA', 'Black_chrkd']):
+            D_label, Y_label = '_'.join(dy.split('_')[:-1]), dy.split('_')[-1]
             W, _, W_feats, X, X_binary, X_feats, Z, Z_binary, Z_feats, Y, D = load_ukbb_data(D_label=D_label, Y_label=Y_label)
-            if Y_label == 'OA':
-                 print(W.shape)
             
             if XZbin:
                  X[:,X_binary] += .5
@@ -59,7 +59,7 @@ if __name__ == '__main__':
             if not os.path.exists(save_dir + '/table1.csv'):
                 np.random.seed(4)
                 residualizeW_ukbb(W, D, Z, X, Y, D_label=D_label, Y_label=Y_label,
-                         model_regression='linear',
+                         model_regression=args.model_regression,
                          save_fname_addn='',
                          binary_D=False, 
                          cv=3, semi=True,

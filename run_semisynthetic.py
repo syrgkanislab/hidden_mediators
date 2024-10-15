@@ -66,6 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--binary_D', action='store_true')
     parser.add_argument('--model_clsf', type=str, default='xgb')
     parser.add_argument('--iters', type=int, default=100)
+    parser.add_argument('--c', type=float, default=.5)
     args = parser.parse_args()
 
 
@@ -92,18 +93,14 @@ if __name__ == '__main__':
     nsamples = 50000
     a = 1.0  # a*b is the indirect effect through mediator
     b = 1.0
-    c = .5  # this is the direct effect we want to estimate
-    d = .0  # this can be zero; does not hurt
-    e = 1.0  # if the product of e*f is small, then we have a weak instrument
-    f = 1.0  # if the product of e*f is small, then we have a weak instrument
     g = .0  # this can be zero; does not hurt
 
 
     results = []
     print(args)
-    fpath = f'./results/semisynthetic/results_Dreal{args.use_Dreal}_Zbinary{args.make_Z_binary}_ClsfZ{args.classify_Z}_SmpZ{args.sample_Z_binary}_Clsf{args.model_clsf}_Dbinary{args.binary_D}.pkl'
-    for i in tqdm(range(args.niters)):
-        results.append(proximal_est(i,generator,nsamples,a,b,c,g,make_Z_binary=args.make_Z_binary, 
+    fpath = f'./results/semisynthetic/results_Dreal{args.use_Dreal}_Zbinary{args.make_Z_binary}_ClsfZ{args.classify_Z}_SmpZ{args.sample_Z_binary}_Clsf{args.model_clsf}_Dbinary{args.binary_D}_c{args.c}.pkl'
+    for i in tqdm(range(args.iters)):
+        results.append(proximal_est(i,generator,nsamples,a,b,args.c,g,make_Z_binary=args.make_Z_binary, 
                                     model_classification=args.model_clsf, binary_D=args.binary_D,
                                     classify_Z=args.classify_Z, sample_Z_binary=args.sample_Z_binary))
         if i % 10 == 0:

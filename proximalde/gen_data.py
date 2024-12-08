@@ -7,7 +7,10 @@ from .utilities import covariance, svd_critical_value
 
 
 def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
-    '''
+    """
+    Generates synthetic dataset for testing, where the mediator is a
+    single continuous variable and only D is binary.
+
     n: number of samples
     pw: dimension of controls
     pz: dimension of treatment proxies ("instruments")
@@ -23,18 +26,23 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     sz : scale of noise of Z
     sx : scale of noise of X
     sy : scale of noise of Y
-    '''
+    """
     W = np.random.normal(0, 1, size=(n, pw))
     D = np.random.binomial(1, scipy.special.expit(2 * W[:, 0]))
     M = a * D + sm * (W[:, 0] + np.random.normal(0, 2, n))
-    Z = (e * M + d * D).reshape(-1, 1) + sz * (W[:, [0]] + np.random.normal(0, 1, (n, pz)))
+    Z = (e * M + d * D).reshape(-1, 1) + sz * (
+        W[:, [0]] + np.random.normal(0, 1, (n, pz))
+    )
     X = f * M.reshape(-1, 1) + sx * (W[:, [0]] + np.random.normal(0, 1, (n, px)))
     Y = b * M + c * D + g * X[:, 0] + sy * (W[:, 0] + np.random.normal(0, 1, n))
     return W, D, M, Z, X, Y
 
+
 def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
-    ''' Controls are generated but are irrelevant to the rest
-    of the data
+    """Generates synthetic dataset for testing, where the mediator is a
+    single continuous variable and only D is binary. .
+    Controls W are generated but are irrelevant to the rest
+    of the data.
 
     n: number of samples
     pw: dimension of controls
@@ -51,83 +59,48 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     sz : scale of noise of Z
     sx : scale of noise of X
     sy : scale of noise of Y
-    '''
+    """
     W = np.random.normal(0, 1, size=(n, pw))
-    D = np.random.binomial(1, .5 * np.ones(n,))
+    D = np.random.binomial(
+        1,
+        0.5
+        * np.ones(
+            n,
+        ),
+    )
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
     X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
     Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     return W, D, M, Z, X, Y
-                           
-def gen_multi_data(n, pw, pz, px, a, b, c, d, e, f, g, 
-                   sm=1, sz=1, sx=1, sy=1, pm=1, invalidZinds=[0], invalidXinds=[0],
-                   dx_path=False, zy_path=False):
-    ''' IN PROGRESS: Will be a more "realistic" version of 
-    synthetic data for debugging purposes.
-    Now the mediator is multi-dimensional (takes pm
-    non-zero discrete values) and W is included in the linear
-    model. Dx and Zy paths are optional to add on for 
-    violating mediator assumptions. 
+
+
+def gen_data_no_controls_discrete_m(
+    n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1
+):
+    """Generates synthetic dataset for testing, where D is binary
+    and now the mediator is multi-dimensional (size pm) and binary.
+    Controls W are generated but are irrelevant to the rest
+    of the data.
 
     n: number of samples
     pw: dimension of controls
+    pm : number of non-zero discrete values that the mediator takes
     pz: dimension of treatment proxies ("instruments")
     px: dimension of outcome proxies ("treatments")
     a : strength of D -> M edge
     b : strength of M -> Y edge
     c : strength of D -> Y edge
     d : strength of D -> Z edge
-    e : strength of M -> Z edge
-    f : strength of M -> X edge
-    g : strength of X -> Y edge
-    '''
-    sm = 2
-    W = np.random.normal(0, 1, size=(n, pw))
-    D = np.random.binomial(1, scipy.special.expit(2 * np.mean(W[:,1:], axis=1)))
-    M = a * D + W[:,0] + sm * np.random.normal(0, 1, (n,))
-    Mp = a * D + W[:,0] + sm * np.random.normal(0, 1, (n,))
-    
-    Z = np.zeros((n, pz))
-    Z = (e * M + d * D + W[:,0]).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
-    if dx_path:
-        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
-        X[:, invalidXinds] += f * Mp.reshape(-1, 1)
-    else:
-        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
-    X += W[:,0].reshape(-1, 1)
-
-    Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
-    if zy_path:
-        Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
-    else:
-        Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
-    Y += W[:,0]
-    return W, D, M, Z, X, Y
-
-def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1):
-    ''' Controls are generated but are irrelevant to the rest
-    of the data. Now the mediator is multi-dimensional (takes pm
-    non-zero discrete values and zero).
-
-    n: number of samples
-    pw: dimension of controls
-    pz: dimension of treatment proxies ("instruments")
-    px: dimension of outcome proxies ("treatments")
-    a : strength of D -> M edge
-    b : strength of M -> Y edge
-    c : strength of D -> Y edge
-    d : strength of D -> Z edge
-    e : strength of M -> Z edge
-    f : strength of M -> X edge
+    E : strength of M -> Z edge (matrix)
+    F : strength of M -> X edge (matrix_)
     g : strength of X -> Y edge
     sz : scale of noise of Z
     sx : scale of noise of X
     sy : scale of noise of Y
-    pm : number of non-zero discrete values that the mediator takes
-    '''
+    """
     W = np.random.normal(0, 1, size=(n, pw))
-    D = np.random.binomial(1, .5 * np.ones(n,))
+    D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1)))
     M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
     Z = M @ E + d * D.reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
@@ -137,11 +110,13 @@ def gen_data_no_controls_discrete_m(n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1,
 
 
 def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
-                                      sm=2, sz=1, sx=1, sy=1,
+                                      sm=2, sz=1, sx=1, sy=1, 
                                       invalidZinds=[0], invalidXinds=[0],
                                       dx_path=True, zy_path=True):
-    ''' Controls are generated but are irrelevant to the rest
-    of the data. We now also have mediation paths:
+    """Generates synthetic dataset for testing, where the mediator is a
+    single continuous variable and only D is binary.
+    Controls W are generated but are irrelevant to the rest
+    of the data. We now also have two optional mediation paths:
         D -> Mp -> X
         Z -> Mpp -> Y
     Such paths violate the assumptions required for the method to work. The
@@ -167,66 +142,82 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
         which Z's are problematic
     invalidXinds : list
         which X's are problematic
-    '''
+    dx_path : boolean, if the violating D -> Mp -> X path should be generated
+    zy_path : boolean, if the violating Z -> Mpp -> Y path should be generated
+    """
     W = np.random.normal(0, 1, size=(n, pw))
-    D = np.random.binomial(1, .5 * np.ones(n,))
+    D = np.random.binomial(1, 0.5 * np.ones(n,))
+
     M = a * D + sm * np.random.normal(0, 1, (n,))
-    Mp = a * D + sm * np.random.normal(0, 1, (n,))
-        
-    Z = np.zeros((n, pz))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
+
+    X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
+    Mp = a * D + sm * np.random.normal(0, 1, (n,))
     if dx_path:
-        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
         X[:, invalidXinds] += f * Mp.reshape(-1, 1)
-    else:
-        X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
-    
-    Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
+
+    Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
     if zy_path:
-        Y = b * M + b * Mpp + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
-    else:
-        Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
+        Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
+        Y += b * Mpp
+
     return W, D, M, Z, X, Y
 
 
 class SemiSyntheticGenerator:
+    """
+    Generates semi-synthetic data based on structural linear equations
+    and real input dataset. The data generation process is described under
+    the .fit() method.
+    """
 
-    def __init__(self, *, split=False, test_size=.5, random_state=None):
+    def __init__(self, *, split: bool = False, test_size: float = 0.5, random_state=None):
+        """
+        Parameters:
+        - split (bool): Whether to split the data into training and testing sets
+        - test_size (float): The proportion of the data to include in the test split.
+        - random_state (int): Random state for reproducibility.
+        """
         self.split = split
         self.test_size = test_size
         self.random_state = random_state
 
-    def fit(self, W, D, Z, X, Y, ZXYres = [], propensity = None, resample_D = True):
-        """ 
-        ZXYres: optional list of numpy arrays 
-        if Z, X, Y residualized separately, can pass [Zres, Xres, Yres] 
-        as precomputed
-        propensity: optional E[D | W] if precomputed
-        resample_D: bool, default True
-        default is to sample D ~ E[D|W]; 
-        if False, will set propensity (of D) to be the mean of real data D
+    def fit(self, W, D, Z, X, Y, ZXYres=None):
         """
-        
+        Fit the data generator to the training split of the input data
+            if self.split else fits to all the data.
+
+        Parameters:
+        - ZXYres (list): Precomputed residualized arrays for Z, X, Y. Defaults to None,
+            in which case the residuals are computed.
+        """
+
+        # Set random seed
         np.random.seed(self.random_state)
-        if ZXYres == []:
+
+        # Compute residualized data if not provided
+        if ZXYres is None:
             _, Zres, Xres, Yres, *_ = residualizeW(W, D, Z, X, Y, semi=True)
         else:
             Zres, Xres, Yres = ZXYres
-            
+
         if self.split:
-            train, test = train_test_split(np.arange(D.shape[0]),
-                                           test_size=self.test_size,
-                                           shuffle=True,
-                                           random_state=self.random_state,
-                                           stratify=D)
+            train, test = train_test_split(
+                np.arange(D.shape[0]),
+                test_size=self.test_size,
+                shuffle=True,
+                random_state=self.random_state,
+                stratify=D,
+            )
         else:
             train, test = np.arange(D.shape[0]), np.arange(D.shape[0])
 
-        # The original covariance is U @ diag(S) @ Vh
-        U, S, Vh = scipy.linalg.svd(covariance(Zres[train], Xres[train]), full_matrices=False)
+        # Singular value decomposition of Cov(ZX).
+        U, S, Vh = scipy.linalg.svd(
+            covariance(Zres[train], Xres[train]), full_matrices=False
+        )
         # We find the statistically no-zero singular values and corresponding sub-spaces
         critical = svd_critical_value(Zres[train], Xres[train])
-        print(critical)
         G = U[:, S > critical]
         F = Vh[S > critical, :].T
 
@@ -266,21 +257,17 @@ class SemiSyntheticGenerator:
         self.F_ = F
         self.s_ = S[S > critical]
 
-        if resample_D and W is not None:
-            if propensity is not None:
-                self.propensity_ = propensity
-            else:
-                if self.split:
-                    self.propensity_ = cross_val_predict(LogisticRegressionCV(random_state=self.random_state, solver='saga',n_jobs=-1),
-                                                        W, D,
-                                                        cv=StratifiedKFold(3, shuffle=True, random_state=123),
-                                                        method='predict_proba')[:, 1]
-                else:
-                    lg = LogisticRegressionCV(random_state=self.random_state)
-                    self.propensity_ = lg.fit(W[train], D[train]).predict_proba(W[test])[:, 1]
+        if self.split:
+            self.propensity_ = cross_val_predict(
+                LogisticRegressionCV(random_state=self.random_state, solver="saga", n_jobs=-1), 
+                W, D,
+                cv=StratifiedKFold(3, shuffle=True, random_state=self.random_state),
+                method="predict_proba",
+            )[:, 1]
         else:
-            self.propensity_ = np.mean(D[train]) * np.ones(len(test))
-        
+            lg = LogisticRegressionCV(random_state=self.random_state)
+            self.propensity_ = lg.fit(W, D).predict_proba(W)[:, 1]
+
         self.n_ = len(test)
         self.W_ = W[test] if W is not None else None
         self.D_ = D[test].flatten()
@@ -292,9 +279,26 @@ class SemiSyntheticGenerator:
         self.Yres_ = Yres[test].flatten()
         return self
 
-    def sample(self, nsamples, a, b, c, g, *, sy=1.0, replace=True, projected_epsilon=False):
+    def sample(
+        self, nsamples, a, b, c, g, sy=1.0, replace=True, projected_epsilon=False
+    ):
+        """
+        Sample synthetic data from the fitted generator.
+
+        Parameters:
+        - nsamples (int): Number of samples to generate.
+        - a, b, c, g (float): Coefficients for structural equation model.
+        - sy (float): Noise scaling factor for Y. Defaults to 1.0.
+        - replace (bool): Whether to sample with replacement. Defaults to True.
+        - projected_epsilon (bool): Whether to use projected residuals for noise. Defaults to False.
+
+        Returns:
+        - tuple: Synthetic data (Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde).
+        """
         if replace is False:
-            assert nsamples <= self.n_, "`nsamples` should be less than train samples if replace is False"
+            assert (
+                nsamples <= self.n_
+            ), "`nsamples` should be less than train samples if replace is False"
 
         inds = np.random.choice(self.n_, size=nsamples, replace=replace)
         Wtilde = self.W_[inds] if self.W_ is not None else None
@@ -308,14 +312,29 @@ class SemiSyntheticGenerator:
 
         Dtilde = np.random.binomial(1, self.propensity_[inds])
         pm = len(self.s_)
-        Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
+        Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(
+            np.zeros(pm), np.diag(self.s_), (nsamples,)
+        )
 
         indsZ = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Zres_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
+        Ztilde = (
+            baseZ
+            + Mtilde @ self.G_.T
+            + (self.Zres_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
+        )
         indsX = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Xtilde = baseX + Mtilde @ self.F_.T + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
+        Xtilde = (
+            baseX
+            + Mtilde @ self.F_.T
+            + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
+        )
 
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Yres_[indsY]
+        Ytilde = (
+            baseY
+            + b * Mtilde @ np.ones(pm) / pm
+            + c * Dtilde
+            + g * Xtilde[:, 0]
+            + sy * self.Yres_[indsY]
+        )
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde
-    

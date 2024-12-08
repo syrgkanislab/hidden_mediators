@@ -103,7 +103,7 @@ class EmpiricalInferenceResults:
         # is equal to the value tested, return nan
         return np.where(np.all(self.point_dist == value, axis=0), np.nan, pvalue)
 
-    def summary(self, *, alpha=0.05, pivot=False, value=0, decimals=3, save_dir='', save_fname_addn=''):
+    def summary(self, *, alpha=0.05, pivot=False, decimals=3, save_dir=''):
         ''' Summarize all the inference results.
 
         TODO. Update presentation of p-value if other variants of p-values
@@ -125,5 +125,6 @@ class EmpiricalInferenceResults:
 
         sm.tables.append(SimpleTable(res, headers, index, "Parameter Summary"))
         if save_dir != '': # TO DO: DELETE SAVE_FNAME_ADDN AFTER UKBB EXPERIMENTS RUN
-            pd.DataFrame(sm.tables[0]).to_csv(save_dir + f'/table0{save_fname_addn}.csv')
+            for i in range(len(sm.tables)):
+                pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}.csv')
         return sm

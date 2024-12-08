@@ -4,9 +4,7 @@ from sklearn.model_selection import cross_val_predict
 from joblib import Parallel, delayed
 
 
-def fit_predict_single(
-    X, Y, isbinary, model_regression, model_classification, cv, semi
-):
+def fit_predict_single(X, Y, isbinary, model_regression, model_classification, cv, semi):
     """Runs a single cross-fit prediction.
 
     Parameters
@@ -54,16 +52,12 @@ def fit_predict_single(
         model = clone(model)
 
     if isbinary:
-        return cross_val_predict(model, X, Y, cv=cv, method="predict_proba")[
-            :, 1
-        ].reshape(Y.shape)
+        return cross_val_predict(model, X, Y, cv=cv, method='predict_proba')[:, 1].reshape(Y.shape)
     else:
         return cross_val_predict(model, X, Y, cv=cv).reshape(Y.shape)
 
 
-def fit_predict(
-    X, Y, isbinary, model_regression, model_classification, cv, semi, n_jobs, verbose
-):
+def fit_predict(X, Y, isbinary, model_regression, model_classification, cv, semi, n_jobs, verbose):
     """Produce out-of-fold predictions of `Y`. Allows for either multitasking
     or for separate fitting for each target in `Y`, when `Y` contains many
     targets.
@@ -109,16 +103,7 @@ def fit_predict(
             X, Y.ravel(), isbinary[0], model_regression, model_classification, cv, semi
         ).reshape(Y.shape)
     else:
-        Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(
-            delayed(fit_predict_single)(
-                X,
-                Y[:, i],
-                isbinary[i],
-                model_regression,
-                model_classification,
-                cv,
-                semi,
-            )
-            for i in range(Y.shape[1])
-        )
+        Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(delayed(fit_predict_single)(
+            X, Y[:, i], isbinary[i], model_regression, model_classification, cv, semi)
+            for i in range(Y.shape[1]))
         return np.column_stack(Ypreds)

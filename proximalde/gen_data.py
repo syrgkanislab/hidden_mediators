@@ -61,13 +61,7 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     sy : scale of noise of Y
     """
     W = np.random.normal(0, 1, size=(n, pw))
-    D = np.random.binomial(
-        1,
-        0.5
-        * np.ones(
-            n,
-        ),
-    )
+    D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
     X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
@@ -312,29 +306,14 @@ class SemiSyntheticGenerator:
 
         Dtilde = np.random.binomial(1, self.propensity_[inds])
         pm = len(self.s_)
-        Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(
-            np.zeros(pm), np.diag(self.s_), (nsamples,)
-        )
+        Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
 
         indsZ = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ztilde = (
-            baseZ
-            + Mtilde @ self.G_.T
-            + (self.Zres_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
-        )
+        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Z_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
+        
         indsX = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Xtilde = (
-            baseX
-            + Mtilde @ self.F_.T
-            + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX])
-        )
+        Xtilde = (baseX + Mtilde @ self.F_.T + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX]))
 
         indsY = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ytilde = (
-            baseY
-            + b * Mtilde @ np.ones(pm) / pm
-            + c * Dtilde
-            + g * Xtilde[:, 0]
-            + sy * self.Yres_[indsY]
-        )
+        Ytilde = baseY + b * Mtilde @ np.ones(pm) / pm + c * Dtilde + g * Xtilde[:, 0] + sy * self.Y_[indsY]
         return Wtilde, Dtilde, Mtilde, Ztilde, Xtilde, Ytilde

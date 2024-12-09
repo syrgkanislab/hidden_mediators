@@ -124,7 +124,7 @@ class EmpiricalInferenceResults:
             index = [f"param{t}" for t in range(len(self.point))]
 
         sm.tables.append(SimpleTable(res, headers, index, "Parameter Summary"))
-        if save_dir != '': # TO DO: DELETE SAVE_FNAME_ADDN AFTER UKBB EXPERIMENTS RUN
+        if save_dir != '': 
             for i in range(len(sm.tables)):
                 pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}.csv')
         return sm

@@ -4,9 +4,10 @@ from sklearn.model_selection import cross_val_predict, StratifiedKFold, train_te
 from sklearn.linear_model import LogisticRegressionCV
 from .proximal import residualizeW
 from .utilities import covariance, svd_critical_value
+from sklearn.preprocessing import StandardScaler
 
 
-def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
+def gen_data_w_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     """
     Generates synthetic dataset for testing, where the mediator is a
     single continuous variable and only D is binary.
@@ -38,10 +39,10 @@ def gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     return W, D, M, Z, X, Y
 
 
-def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
+def gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy=1):
     """Generates synthetic dataset for testing, where the mediator is a
     single continuous variable and only D is binary. .
-    Controls W are generated but are irrelevant to the rest
+    Controls W are ignored and irrelevant to the rest
     of the data.
 
     n: number of samples
@@ -60,7 +61,7 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
     sx : scale of noise of X
     sy : scale of noise of Y
     """
-    W = np.random.normal(0, 1, size=(n, pw))
+    W = None
     D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
@@ -70,11 +71,11 @@ def gen_data_no_controls(n, pw, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1
 
 
 def gen_data_no_controls_discrete_m(
-    n, pw, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1
+    n, pz, px, a, b, c, d, E, F, g, *, sz=1, sx=1, sy=1, pm=1
 ):
     """Generates synthetic dataset for testing, where D is binary
     and now the mediator is multi-dimensional (size pm) and binary.
-    Controls W are generated but are irrelevant to the rest
+    Controls W are ignored and irrelevant to the rest
     of the data.
 
     n: number of samples
@@ -93,7 +94,7 @@ def gen_data_no_controls_discrete_m(
     sx : scale of noise of X
     sy : scale of noise of Y
     """
-    W = np.random.normal(0, 1, size=(n, pw))
+    W = None
     D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1)))
     M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))
@@ -103,13 +104,13 @@ def gen_data_no_controls_discrete_m(
     return W, D, M, Z, X, Y
 
 
-def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
+def gen_data_no_controls_mediator_violations(n, pz, px, a, b, c, d, e, f, g, *,
                                       sm=2, sz=1, sx=1, sy=1, 
                                       invalidZinds=[0], invalidXinds=[0],
                                       dx_path=True, zy_path=True):
     """Generates synthetic dataset for testing, where the mediator is a
     single continuous variable and only D is binary.
-    Controls W are generated but are irrelevant to the rest
+    Controls W are ignored and irrelevant to the rest
     of the data. We now also have two optional mediation paths:
         D -> Mp -> X
         Z -> Mpp -> Y
@@ -139,7 +140,7 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
     dx_path : boolean, if the violating D -> Mp -> X path should be generated
     zy_path : boolean, if the violating Z -> Mpp -> Y path should be generated
     """
-    W = np.random.normal(0, 1, size=(n, pw))
+    W = None
     D = np.random.binomial(1, 0.5 * np.ones(n,))
 
     M = a * D + sm * np.random.normal(0, 1, (n,))
@@ -157,6 +158,50 @@ def gen_data_with_mediator_violations(n, pw, pz, px, a, b, c, d, e, f, g, *,
 
     return W, D, M, Z, X, Y
 
+
+def gen_data(a, b, c, d, e, f, g, pm, pz, px, pw, n, sm=1, seed=42):
+    """
+    Generates synthetic dataset for testing. Only supports continuous W, Z, X, Y.
+    D is always binary.
+
+    n: number of samples
+    pw: dimension of controls
+    pm: dimension of mediator
+    pz: dimension of treatment proxies ("instruments")
+    px: dimension of outcome proxies ("treatments")
+    a : strength of D -> M edge
+    b : strength of M -> Y edge
+    c : strength of D -> Y edge
+    d : strength of D -> Z edge
+    e : strength of M -> Z edge
+    f : strength of M -> X edge
+    g : strength of X -> Y edge
+    sm : scale of noise of M
+    """
+    
+    assert pm <= max(pz,px) # dim of mediator should not exceed max(dim X, dim Z)
+    np.random.seed(seed)
+    if pm > 1: # multidimensional binary mediator
+        assert pw == 0, "Existing code only supports generating multidim M without controls"
+        full_rank = False
+        while not full_rank: 
+            E = np.random.normal(0, 2, (pm, pz))
+            F = np.random.normal(0, 2, (pm, px))
+            if (np.linalg.matrix_rank(E, tol=0.5) == pm) and (np.linalg.matrix_rank(F, tol=0.5) == pm):
+                full_rank = True
+        W, D, _, Z, X, Y = gen_data_no_controls_discrete_m(n, pz, px, a, b, c, d, e*E, f*F, g, pm=pm)
+    elif pw > 0:
+        W, D, _, Z, X, Y = gen_data_w_controls(n, pw, pz, px, a, b, c, d, e, f, g, sm=sm)
+    else:
+        W, D, _, Z, X, Y = gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g, sm=sm)
+
+    # It's advisable to standardize W, Z, X and center the binary ones
+    if pw > 0:
+        W = StandardScaler().fit_transform(W)
+    X = StandardScaler().fit_transform(X)
+    Z = StandardScaler().fit_transform(Z)
+    
+    return W, X, Z, D, Y
 
 class SemiSyntheticGenerator:
     """
@@ -273,9 +318,7 @@ class SemiSyntheticGenerator:
         self.Yres_ = Yres[test].flatten()
         return self
 
-    def sample(
-        self, nsamples, a, b, c, g, sy=1.0, replace=True, projected_epsilon=False
-    ):
+    def sample(self, nsamples, a, b, c, g, sy=1.0, replace=True, projected_epsilon=False):
         """
         Sample synthetic data from the fitted generator.
 

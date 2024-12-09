@@ -11,7 +11,7 @@ import pandas as pd
 from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
-from .diagnostics import IVDiagnostics
+from .influence import InfluenceDiagnostics
 from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
 
 
@@ -523,10 +523,6 @@ class ProximalDE(BaseEstimator):
         -------
         self : object
         '''
-        # if diagnostics were previously run after some previous fit then we
-        # need to make those diagnostics invalid, since we are refitting
-        if hasattr(self, 'diag_'):
-            del (self.diag_)
 
         # 1. residualize W from all the variables
         # 2. estimate the nuisance coefficients that solve the moments
@@ -985,13 +981,13 @@ class ProximalDE(BaseEstimator):
                 pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}.csv')
         return sm
 
-    def run_diagnostics(self):
-        ''' Returns an ``unusual data'' diagnostics object of type `IVDiagnostics`.
+    def run_influence_diagnostics(self):
+        ''' Returns an ``unusual data'' (influence) diagnostics object of type `InfluenceDiagnostics`.
         Can then be used to plot robust statistic diagnostics for the results of
-        the estimation process. See `diagnostics.IVDiagnostics` for more details.
+        the estimation process. See `influence.InfluenceDiagnostics` for more details.
         '''
         self._check_is_fitted()
-        self.diag_ = IVDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
+        self.diag_ = InfluenceDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
         return self.diag_
 
     def influential_set(self, max_points=None, alpha=None, use_exact_influence=True,

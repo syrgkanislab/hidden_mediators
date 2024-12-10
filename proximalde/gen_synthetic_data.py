@@ -106,8 +106,7 @@ def gen_data_no_controls_discrete_m(
 
 def gen_data_no_controls_mediator_violations(n, pz, px, a, b, c, d, e, f, g, *,
                                       sm=2, sz=1, sx=1, sy=1, 
-                                      invalidZinds=[0], invalidXinds=[0],
-                                      dx_path=True, zy_path=True):
+                                      invalidZinds=[], invalidXinds=[]):
     """Generates synthetic dataset for testing, where the mediator is a
     single continuous variable and only D is binary.
     Controls W are ignored and irrelevant to the rest
@@ -134,11 +133,11 @@ def gen_data_no_controls_mediator_violations(n, pz, px, a, b, c, d, e, f, g, *,
     sx : scale of noise of X
     sy : scale of noise of Y
     invalidZinds : list
-        which Z's are problematic
-    invalidXinds : list
-        which X's are problematic
-    dx_path : boolean, if the violating D -> Mp -> X path should be generated
-    zy_path : boolean, if the violating Z -> Mpp -> Y path should be generated
+        which Z's are problematic. 
+        If empty, does not generate violating ZY path. 
+    invalidXinds : list()
+        which X's are problematic. 
+        If empty, does not generate violating DX path. 
     """
     W = None
     D = np.random.binomial(1, 0.5 * np.ones(n,))
@@ -148,11 +147,11 @@ def gen_data_no_controls_mediator_violations(n, pz, px, a, b, c, d, e, f, g, *,
 
     X = f * M.reshape(-1, 1) + sx * np.random.normal(0, 1, (n, px))
     Mp = a * D + sm * np.random.normal(0, 1, (n,))
-    if dx_path:
+    if len(invalidZinds) > 0:
         X[:, invalidXinds] += f * Mp.reshape(-1, 1)
 
     Y = b * M + c * D + g * X[:, 0] + sy * np.random.normal(0, 1, n)
-    if zy_path:
+    if len(invalidZinds) > 0:
         Mpp = np.mean(Z[:, invalidZinds], axis=1) + sm * np.random.normal(0, 1, (n,))
         Y += b * Mpp
 

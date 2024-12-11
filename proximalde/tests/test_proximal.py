@@ -239,8 +239,8 @@ def test_violations():
                                                                                     cv=5, n_jobs=-1, verbose=0,
                                                                                     random_state=123)
     print(pval, dval, strength / strength_std)
-    assert dval > 3.84
-    assert pval < 3.84
+    assert dval > chi2(1).ppf(.95)
+    assert pval < chi2(2).ppf(.95)
     assert strength / strength_std > 11.0
 
     np.random.seed(1234)
@@ -252,8 +252,8 @@ def test_violations():
                                                                                    cv=5, n_jobs=-1, verbose=0,
                                                                                     random_state=123)
     print(pval, dval, strength / strength_std)
-    assert dval < 3.84
-    assert pval < 3.84
+    assert dval < chi2(1).ppf(.95)
+    assert pval < chi2(2).ppf(.95)
     assert strength > 11
 
     np.random.seed(123)
@@ -265,7 +265,7 @@ def test_violations():
                                                                                     cv=5, n_jobs=-1, verbose=0,
                                                                                     random_state=123)
     print(pval, dval, strength / strength_std)
-    assert pval < 3.84
+    assert pval < chi2(2).ppf(.95)
     assert strength / strength_std < 11.6
 
     np.random.seed(123)
@@ -277,8 +277,8 @@ def test_violations():
                                                                                     cv=5, n_jobs=-1, verbose=0,
                                                                                     random_state=123)
     print(pval, dval, strength / strength_std)
-    assert dval < 3.84
-    assert pval > 3.84
+    assert dval < chi2(1).ppf(.95)
+    assert pval > chi2(2).ppf(.95)
     assert strength / strength_std > 11.6
 
 
@@ -451,7 +451,7 @@ def test_pde_fit():
 
     for semi, cv, ivreg_type, \
         categorical, random_state in [(True, 2, '2sls', True, 123),
-                                      (False, 3, 'adv', False, 345)]:
+                                      (False, 3, 'adv', True, 345)]:
         pde = ProximalDE(ivreg_type=ivreg_type, binary_D=categorical, cv=cv,
                          semi=semi,
                          n_jobs=1, random_state=random_state)
@@ -464,6 +464,7 @@ def test_pde_fit():
                                                                                     semi=semi,
                                                                                     n_jobs=1, verbose=0,
                                                                                     random_state=random_state)[:10]
+        print(point, pde.point_, "here")
         assert pde.pw_ == pw
         assert pde.pz_ == pz
         assert pde.px_ == px
@@ -605,6 +606,7 @@ def test_pde_subsample_bootstrap():
         pde.bootstrap_inference(stage=4, n_subsamples=100)
     print(e_info)
 
+    W, D, _, Z, X, Y = gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g)
     pde.fit(None, D, Z, X, Y)
     for stage in [2, 3]:
         inf = pde.bootstrap_inference(stage=stage, n_subsamples=100)

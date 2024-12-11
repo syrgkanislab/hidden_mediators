@@ -248,7 +248,6 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, ivreg_type='adv',
     inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
     idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
 
-    print(primal_violation_stat, dual_violation_stat)
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
         ivreg_eta, ivreg_gamma, Zres
@@ -335,7 +334,6 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     random_state: random seed for any internal randomness
     '''
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
-
     if D.shape[1] > 1:
         raise AttributeError("D should be a scalar treatment")
     if Y.shape[1] > 1:
@@ -364,8 +362,9 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     # reporting point estimate and standard error of Controlled Direct Effect
     # and R^ performance of nuisance models
     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
-        primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, point_pre, std_pre, \
-        Dres, Zres, Xres, Yres, splits, eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar
+        idstrength, idstrength_std, point_pre, std_pre, \
+        primal_violation_stat, dual_violation_stat, Dres, Zres, Xres, Yres, \
+        splits, eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar
 
 
 def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
@@ -526,6 +525,11 @@ class ProximalDE(BaseEstimator):
         -------
         self : object
         '''
+        # if diagnostics were previously run after some previous fit then we
+        # need to make those diagnostics invalid, since we are refitting
+        if hasattr(self, 'diag_'):
+            del (self.diag_)
+        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
         # 1. residualize W from all the variables
         # 2. estimate the nuisance coefficients that solve the moments
@@ -533,17 +537,16 @@ class ProximalDE(BaseEstimator):
         #   E[(Dres - gamma'Zres) Xres] = 0 
         # 3. Final moment solution: solve for c the equation
         #   E[(Yres - eta'Xres - c * Dres) (Dres - gamma'Zres)] = 0
-        point_debiased, std_debiased, r2D, r2Z, r2X, \
-            r2Y, primal_violation, dual_violation, \
+        point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
             idstrength, idstrength_std, point_pre, std_pre, \
-            Dres, Zres, Xres, Yres, splits, eta, gamma, \
-            ivreg_eta, ivreg_gamma, dualIV, inf, Dbar, Ybar = \
+            primal_violation, dual_violation, Dres, Zres, Xres, Yres, \
+            splits, eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar = \
                         proximal_direct_effect(W, D, Z, X, Y, 
                         model_regression=self.model_regression,
                          model_classification=self.model_classification,
                          binary_D=self.binary_D, binary_Z=self.binary_Z,
                          binary_X=self.binary_X, binary_Y=self.binary_Y,
-                         cv=self.cv, semi=self.semi,
+                         cv=self.cv, semi=self.semi, ivreg_type=self.ivreg_type,
                          n_jobs=self.n_jobs, verbose=self.verbose,
                          random_state=self.random_state,
                          alpha_exponent=self.alpha_exponent,
@@ -594,7 +597,7 @@ class ProximalDE(BaseEstimator):
         self.idstrength_std_ = idstrength_std
         self.ivreg_eta_ = ivreg_eta
         self.ivreg_gamma_ = ivreg_gamma
-        self.dualIV_ = dualIV
+        self.dualIV_ = Zres
         self.inf_ = inf
 
         return self

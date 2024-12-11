@@ -1,12 +1,12 @@
-# hidden_mediators
-# Project Name
+# Detecting clinician implicit biases in diagnoses using proximal causal inference [[paper]](https://psb.stanford.edu/psb-online/proceedings/psb25/liu_k.pdf)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.8-blue.svg)](https://www.python.org/)
 
-## Description
+## Overview
 
-A brief description of what the project does and its main features. https://psb.stanford.edu/psb-online/proceedings/psb25/liu_k.pdf
+We provide a user-friendly tool to detect implicit biases in observational datasets.
+The main class is `ProximalDE`, which calculates the implicit bias direct effect and provides access to all the auxiliary tests used to validate the result. 
 
 ## Table of Contents
 

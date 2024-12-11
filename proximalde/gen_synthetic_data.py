@@ -60,7 +60,7 @@ def gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     sx : scale of noise of X
     sy : scale of noise of Y
     """
-    W = np.random.binomial(1, 0.5 * np.ones(n,))
+    W = None#np.random.normal(0, 1, size=(n, 1))
     D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
@@ -93,7 +93,7 @@ def gen_data_no_controls_discrete_m(
     sx : scale of noise of X
     sy : scale of noise of Y
     """
-    W = None
+    W = None# np.random.normal(0, 1, size=(n, 1))
     D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = np.random.binomial(1, scipy.special.expit(a * (2 * D - 1)))
     M = M.reshape(-1, 1) * np.random.multinomial(1, np.ones(pm) / pm, size=(n,))

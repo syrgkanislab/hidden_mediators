@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 from sklearn.linear_model import LinearRegression
-from ..gen_data import gen_data_complex
+from ..gen_synthetic_data import gen_data_w_controls
 from .utilities import gen_iv_data
 
 
@@ -30,7 +30,7 @@ def test_gen_data_complex():
     pz, px = 4, 2
 
     np.random.seed(123)
-    W, D, M, Z, X, Y = gen_data_complex(n, pw, pz, px, a, b, c, d, e, f, g)
+    W, D, M, Z, X, Y = gen_data_w_controls(n, pw, pz, px, a, b, c, d, e, f, g)
 
     assert W.shape == (n, pw)
     assert D.shape == (n,)

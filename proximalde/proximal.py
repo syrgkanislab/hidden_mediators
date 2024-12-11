@@ -248,6 +248,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, ivreg_type='adv',
     inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
     idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
 
+    print(primal_violation_stat, dual_violation_stat)
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
         ivreg_eta, ivreg_gamma, Zres
@@ -428,6 +429,7 @@ class ProximalDE(BaseEstimator):
     Parameters
     ----------
     model_regression : (BaseEstimator, RegressorMixin) object or one of {'linear', 'xgb'}
+        Model used for regressing controls W. 
         If `linear` then a LassoCV model is used. If `xgb` then an xgboost regressor
         is used with cross-validated learning rate and earlystopping. If an object
         is passed, then it should inherit the functionality of an sklearn BaseEstimator
@@ -435,6 +437,7 @@ class ProximalDE(BaseEstimator):
         attribute `best_estimator_` after being fitted, that contains an instance of the object
         with the best chosen hyperaparameters.
     model_classification : : (BaseEstimator, ClassifierMixin) object or one of {'linear', 'xgb'}
+        Model used for regressing controls W. 
         If `linear` then a LogisticRegressionCV(penalty='l1') model is used.
         If `xgb` then an xgboost classifier is used with cross-validated learning rate
         and earlystopping. If an object is passed, then it should inherit the functionality
@@ -1028,7 +1031,7 @@ class ProximalDE(BaseEstimator):
         '''
 
         if not hasattr(self, 'diag_'):
-            raise AttributeError("Please call the `run_diagnostics` method first.")
+            raise AttributeError("Please call the `run_influence_diagnostics` method first.")
 
         point = self.point_
         if use_exact_influence:

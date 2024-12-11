@@ -46,7 +46,6 @@ def gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     of the data.
 
     n: number of samples
-    pw: dimension of controls
     pz: dimension of treatment proxies ("instruments")
     px: dimension of outcome proxies ("treatments")
     a : strength of D -> M edge
@@ -61,7 +60,7 @@ def gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g, *, sm=2, sz=1, sx=1, sy
     sx : scale of noise of X
     sy : scale of noise of Y
     """
-    W = None
+    W = np.random.binomial(1, 0.5 * np.ones(n,))
     D = np.random.binomial(1, 0.5 * np.ones(n,))
     M = a * D + sm * np.random.normal(0, 1, (n,))
     Z = (e * M + d * D).reshape(-1, 1) + sz * np.random.normal(0, 1, (n, pz))
@@ -295,7 +294,9 @@ class SemiSyntheticGenerator:
         self.F_ = F
         self.s_ = S[S > critical]
 
-        if self.split:
+        if W is None:
+            self.propensity_ = np.mean(D[train]) * np.ones(len(test))
+        elif self.split:
             self.propensity_ = cross_val_predict(
                 LogisticRegressionCV(random_state=self.random_state, solver="saga", n_jobs=-1), 
                 W, D,
@@ -351,7 +352,7 @@ class SemiSyntheticGenerator:
         Mtilde = a * Dtilde.reshape(-1, 1) + np.random.multivariate_normal(np.zeros(pm), np.diag(self.s_), (nsamples,))
 
         indsZ = np.random.choice(self.n_, size=nsamples, replace=replace)
-        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Z_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
+        Ztilde = baseZ + Mtilde @ self.G_.T + (self.Zres_[indsZ] if not projected_epsilon else self.Zepsilon_[indsZ])
         
         indsX = np.random.choice(self.n_, size=nsamples, replace=replace)
         Xtilde = (baseX + Mtilde @ self.F_.T + (self.Xres_[indsX] if not projected_epsilon else self.Xepsilon_[indsX]))

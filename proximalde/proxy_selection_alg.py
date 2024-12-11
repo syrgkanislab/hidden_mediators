@@ -36,7 +36,10 @@ class ProxySelection():
             primal_type (str): How the primal is estimated. 
                 Options: 'est' (estimate) = is Cov(YZ) in col-span(Cov(Z,X)) or 
                 'full' = is Cov(Y,DZ) in col-span(Cov(DZ,DX))
-            est_thresh (float): Threshold for estimation-based violations.
+            est_thresh (float): When estimating the primal and dual violation, we 
+                set our "critical value" to beat as est_thresh * baseline_violation, 
+                where the baseline is the violation (dual or primal) we have when
+                using all of X or Z proxies 
         """
         self.Xres = Xres
         self.Zres = Zres 
@@ -177,7 +180,7 @@ class ProxySelection():
                 if dual < dual_thresh:
                     Xidxs += unusedX[next].tolist()
                 unusedX = np.delete(unusedX, next)
-        print(len(Xidxs))
+
         # If we found any non-empty set of admissible Xidxs that pass the dual,
         # we will then check the full estimate of the dual and primal to make sure 
         # the candidate Xidxs with the Zidxs don't fail either
@@ -255,6 +258,7 @@ class ProxySelection():
         
         ntrials : For each search of X proxies (or Z proxies), we search for ntrials candiates 
             that pass the respective test when paired with the Z candidate (or X respectively)
+            In the paper, this is also referred to as K
         n_jobs : number of jobs to parallelize the above trials over 
         niters : Number of rounds to run this (1 round = looks for Xidxs and then Zidxs for 
             each Xidx.

@@ -12,7 +12,7 @@ The main class of our method is `ProximalDE` (found in `proximalde.proximal.py`)
 ## Table of Contents
 
 - [Installation](#installation)
-    -[Google Colab](#google-colab)
+    - [Google Colab](#google-colab)
 - [Usage](#usage)
     - [Examples via Jupyter Notebooks](#examples-via-jupyter-notebooks)
     - [Application to Real Data](#application-to-real-data)

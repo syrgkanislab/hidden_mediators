@@ -65,12 +65,26 @@ Finally, we provide two additional algorithms we developed to aid in implicit bi
 
 ### Examples via Jupyter Notebooks
 We provide several notebooks with example computation and analyses: 
-#### hello
 #### `SyntheticExperiments.ipynb`
+This notebooks presents the basics of how to run use the `ProximalDE` class and how to run the tests we provide to validate the results. This includes a very simple influence analysis, as well as subsample bootstrap experiments. 
+
+Purely synthetic data can be generated for experimentation by specifying parameters into 
+```
+W, X, Z, D, Y = gen_data(a, b, c, d, e, f, g, pm, pz, px, pw, n, sm=sm, seed=seed)
+```
+Knowing the implicit bias effect $c = \theta$ also allows us to run many iterations of an experiment and to collect various metrics, like MSE and coverage. We show an example of this in this notebook. 
+
 #### `SemiSyntheticExperiments.ipynb`
+Given a real dataset, we can compute a semi-synthetic dataset with known implicit bias effect $c = \theta$, as detailed in our paper (although in this notebook, we use pure synthetic data as the input dataset). The `SemiSyntheticGenerator` object is described in detail in `proximalde.gen_synthetic_data.py` and can be used like such: 
+```
+generator = SemiSyntheticGenerator(random_state=0,split=True)
+generator.fit(W, D, Z, X, Y, ZXYres=None) 
+Wtilde, Dtilde, _, Ztilde, Xtilde, Ytilde = generator.sample(nsamples, a, b, c, g, replace=True)
+```
 #### `Tests.ipynb`
 #### `SyntheticViolationExploration.ipynb`
 #### `CustomRegressionModels.ipynb`
+
 ### Application to Real Data 
 
 Provide instructions and examples on how to use the project.

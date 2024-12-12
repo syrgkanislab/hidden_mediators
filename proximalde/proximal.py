@@ -386,17 +386,17 @@ class ProximalDE(BaseEstimator):
     the effect that flows through the direct edge D -> Y. `D` and `Y` are assumed
     to be scalar random variables. The method also assumes a partially linear
     outcome bridge function:
-        h(D, X, W) = c D + eta'X + f(W)
-    where c is the controlled direct effect we want to estimate and h satisfies
+        q(D, X, W) = c D + eta'X + f(W)
+    where c is the controlled direct effect we want to estimate and q satisfies
     the primal IV moment:
-        E[Y - h(D, X, W) | D, Z, W] = 0
+        E[Y - q(D, X, W) | D, Z, W] = 0
     This is satisfied if for instance the following conditional expectations
     are partially linear:
         E[Y|D, M, X, W] = c D + b'M + g'X + f_Y(W)
         E[X|M, W] = F M + f_X(W)
     and that the matrix F has full column rank. The method also assumes that
     the parameter `c` is uniquely identified, even if eta is not. This requires
-    that the dual IV moment E[Z (D - gamma'Z)] admit solution. A sufficient
+    that the dual IV moment E[X (D - gamma'Z)] admit solution. A sufficient
     condition for this, is that the covariance matrix `Cov(M, Z)` has full
     row rank.
 
@@ -467,8 +467,6 @@ class ProximalDE(BaseEstimator):
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    res_model: what model to use for residualizing W, either multitask for 
-        predicting multivariate targets, lasso, or xgb.
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
@@ -525,11 +523,12 @@ class ProximalDE(BaseEstimator):
         -------
         self : object
         '''
+        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
         # if diagnostics were previously run after some previous fit then we
         # need to make those diagnostics invalid, since we are refitting
         if hasattr(self, 'diag_'):
             del (self.diag_)
-        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
         # 1. residualize W from all the variables
         # 2. estimate the nuisance coefficients that solve the moments
@@ -657,8 +656,8 @@ class ProximalDE(BaseEstimator):
         ''' Simplification of the effective first stage F-test for the case
         of only one instrument. Performs a first stage effective F-test with
         `Dbar` as the instrument, and `Dres` as the treatment. Measures the strength
-        of the identification of the target parameter.
-        See proximalde.ivtests.weakiv_tests for more information on these tests.
+        of the identification of the target parameter. This is the identification strength test 
+        (a), the effective F-test mentioned in the paper. 
         See also here:
         https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
 
@@ -849,6 +848,8 @@ class ProximalDE(BaseEstimator):
         ''' Test of the null hypothesis that
             E[Dres (Dres - gamma'Zres)] = 0
         Identification requires that this null hypothesis be rejected.
+        This is the identification strength test (b), the z-test mentioned in the 
+        paper. 
 
         Parameters
         ----------
@@ -959,7 +960,7 @@ class ProximalDE(BaseEstimator):
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
             'and tilde denoting residual after removing the part predictable from $W$.',
-            '1. Identification strength $\\sqrt{n} |E_n[\\tilde{D} V]|$ ',
+            '1. Identification strength Z-test $\\sqrt{n} |E_n[\\tilde{D} V]|$ ',
             'A small statistic implies that the effect is weakly identified because '
             'the instrument V is too weakly correlated with the treatment.',
             'This can be caused if the mediator is very predictable from the treatment.',
@@ -976,7 +977,7 @@ class ProximalDE(BaseEstimator):
             'and implies weak identification. ',
             'For instance, large violation can occur if Z is weakly correlated with the mediator, '
             'while X and D are correlated with the mediator.',
-            '4. Weak IV test with $V$ as the instrument, $\\tilde{D}$ as the treatment '
+            '4. Weak IV F test with $V$ as the instrument, $\\tilde{D}$ as the treatment '
             'and $\\tilde{Y} - \\tilde{X}^\\top \\eta$ as the outcome. ',
             'It estimates the coefficient $\\hat{\\pi}$ of the first stage regression of $\\tilde{D}$ on $V$ '
             'and uses an estimate of the statistic $\\hat{\\pi}^2 / Var(\\hat{\\pi})$',

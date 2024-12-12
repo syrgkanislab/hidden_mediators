@@ -13,9 +13,8 @@ The main class of our method is `ProximalDE` (found in `proximalde.proximal.py`)
 
 - [Installation](#installation)
 - [Usage](#usage)
-- [Features](#features)
-- [Application to Real Data](#data)
-- [Contributing](#contributing)
+    - [Examples via Jupyter Notebooks](#examples-via-jupyter-notebooks)
+    - [Application to Real Data](#application-to-real-data)
 - [License](#license)
 - [Contact](#contact)
 
@@ -75,33 +74,38 @@ W, X, Z, D, Y = gen_data(a, b, c, d, e, f, g, pm, pz, px, pw, n, sm=sm, seed=see
 Knowing the implicit bias effect $c = \theta$ also allows us to run many iterations of an experiment and to collect various metrics, like MSE and coverage. We show an example of this in this notebook. 
 
 #### `SemiSyntheticExperiments.ipynb`
-Given a real dataset, we can compute a semi-synthetic dataset with known implicit bias effect $c = \theta$, as detailed in our paper (although in this notebook, we use pure synthetic data as the input dataset). The `SemiSyntheticGenerator` object is described in detail in `proximalde.gen_synthetic_data.py` and can be used like such: 
+Given a real dataset, we can compute a semi-synthetic dataset with known implicit bias effect $c = \theta$, as detailed in our paper (although in this notebook, we naively use pure synthetic data as the input dataset). The `SemiSyntheticGenerator` object is described in detail in `proximalde.gen_synthetic_data.py` and can be used like such: 
 ```
-generator = SemiSyntheticGenerator(random_state=0,split=True)
-generator.fit(W, D, Z, X, Y, ZXYres=None) 
-Wtilde, Dtilde, _, Ztilde, Xtilde, Ytilde = generator.sample(nsamples, a, b, c, g, replace=True)
+generator = SemiSyntheticGenerator(random_state=0, test_size=.5, split=True)
+generator.fit(W, D, Z, X, Y) 
+What, Dhat, _, Zhat, Xhat, Yhat = generator.sample(nsamples, a, b, c, g)
 ```
 #### `Tests.ipynb`
+This notebook walks through each of the 5 tests we propose (dual violation, primal violation, strength identification tests, covariance rank test) and generates examples in which we expect and see that each test fails when violations in synthetic data are violated. For example, if we generate $X$ to be weak proxy without any relationship $M \rightarrow X$ or $X \rightarrow Y$, then we expect the primal violation test to fail. 
 #### `SyntheticViolationExploration.ipynb`
-#### `CustomRegressionModels.ipynb`
+In our work, we found using the entire set of available proxies $X$ and $Z$ leads to both the dual and primal violation tests failing. In this notebook, we work backwards essentially by simulating synthetic data that fails both the dual and primal tests.
 
-### Application to Real Data 
-
-Provide instructions and examples on how to use the project.
-
-```bash
-python main.py
+Importantly, this notebook also introduces how to call and use the proposed proxy selection algorithm. The method entails the class `ProxySelection` (detailed in depth in `proximalde.proxy_selection_alg.py`), which can be called as such: 
 ```
+psalg = ProxySelection(Xres,Zres,Dres,Yres,primal_type='full', violation_type='full',est_thresh=.05)
+```
+where all the arguments are described in depth in the `proximalde.proxy_selection_alg.py`. Calling the algorithm assumes that the data fails the dual and primal. 
 
-## Features
+This class takes the data after residualization of $W$ to find a list of candidate sets of proxy features in $X$ and $Z$ that pass the dual and primal tests. Candidate sets can be found by calling 
+```
+candidates = prm.find_candidate_sets(ntrials,niters=2)
+```
+which varies on thoroughness and time to compute candidates based on the number of `ntrials` selected (this is parameter $K$ in the paper; we typically used `ntrials`~=100). The result list `candidates` contains potential feature subsets of the proxies $X$ and $Z$ that should now pass the dual and primal tests. To confirm, a new estimator `ProximalDE` should be fit over the new proxies. For robustness, it is wise to run `ProxySelection` over one split of the dataset, and to evaluate `ProximalDE` on the other split of proxy subsets. 
 
-- Feature 1: Brief description
-- Feature 2: Brief description
-- Feature 3: Brief description
+#### `CustomRegressionModels.ipynb`
+If user wants to try other models besides the available model options for residualizing $W$, we provide a notebook walking you through this. The main thing this model must inherit is the `BaseEstimator, RegressorMixin` classes (from sklearn). We provide an example `XGBRegressorWrapper` custom model that can then be passed into the `ProximalDE` class to use for residualizing $W$ (i.e., `ProximalDE(model_regression=XGBRegressionWrapper(), semi=False)`). 
+### Application to Real Data 
+Applying this method to real data requires first and foremost careful selection into which variables you are designating as $W, X, Z$, as well as knowledge about how $Y$ and $D$ were collected such that all causal assumptions hold. Variable selection is on a case-by-case basis per dataset. 
 
-## Contributing
+After variables have been selected, missingness should be analyzed and handled appropriately. Finally, the data can be grouped where $D$, $Y$ are N-dimensional vectors, $W,Z,X$ are matrices of size N by $\{p_W, p_Z, p_X\}$. A few suggestions we found when running on real data:
+1. If $W,Z,X$ are high-dimensional (i.e. >50), repeatedly residualzing $W$ might be expensive, and it might be wise to save the residuals once and load automatically for usage. 
+2. We recommend running `ProximalDE` over all the data before assuming the proxy selection algorithm should be used. If any of the tests fail, there likely needs to be a modification of variables (i.e., see the paper and `Tests.ipynb` for better intuition on how a test failure could inform how variables should be updated). Only if both the dual and primal fail should the proxy selection algorithm be run (and again, it should be done on a separate split of the data than the split used to evaluate the proxy subset with `ProximalDE`).
 
-Contributions are welcome! Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 

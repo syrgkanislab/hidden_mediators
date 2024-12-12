@@ -12,6 +12,7 @@ The main class of our method is `ProximalDE` (found in `proximalde.proximal.py`)
 ## Table of Contents
 
 - [Installation](#installation)
+    -[Google Colab](#google-colab)
 - [Usage](#usage)
     - [Examples via Jupyter Notebooks](#examples-via-jupyter-notebooks)
     - [Application to Real Data](#application-to-real-data)
@@ -24,7 +25,29 @@ The repository can be installed by running the following commands:
 $ git clone https://github.com/syrgkanislab/hidden_mediators
 $ cd hidden_mediators
 $ pip install -r requirements.txt
-$ python setup.py develop
+$ python setup.py install
+```
+### Google Colab
+Our Jupyter notebooks also include the required script for running on Google Colab. First time setup (if `hidden_mediators` isn't installed manually or using code in your Colab space) requires running, from the Colab environment,
+```
+from google.colab import drive
+drive.mount('/content/drive') # or wherever your drive is mounted 
+%cd drive/MyDrive/Colab\ Notebooks # or whatever path where notebooks are stored 
+
+! git clone https://github.com/syrgkanislab/hidden_mediators
+%cd hidden_mediators
+! pip install -r requirements.txt
+! python setup.py install
+```
+Again, you could also manually upload the `hidden_mediators` to the appropriate Colab directory directly. 
+
+After this initial installation, you should only run 
+```
+from google.colab import drive
+drive.mount('/content/drive') # or wherever your drive is mounted 
+%cd drive/MyDrive/Colab\ Notebooks # or whatever path where notebooks are stored 
+
+%cd drive/MyDrive/Colab\ Notebooks/hidden_mediators
 ```
 
 ## Usage 

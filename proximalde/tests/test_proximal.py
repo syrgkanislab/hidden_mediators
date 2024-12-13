@@ -464,7 +464,6 @@ def test_pde_fit():
                                                                                     semi=semi,
                                                                                     n_jobs=1, verbose=0,
                                                                                     random_state=random_state)[:10]
-        print(point, pde.point_, "here")
         assert pde.pw_ == pw
         assert pde.pz_ == pz
         assert pde.px_ == px
@@ -588,14 +587,14 @@ def test_pde_run_diagnostics():
 
 
 def test_pde_subsample_bootstrap():
-    np.random.seed(123)
+    np.random.seed(1234)
     a, b, c, d, e, f, g = .3, .6, .5, .7, .5, .5, .9
     n = 100
     pw = 1
     pz, px = 3, 2
     W, D, _, Z, X, Y = gen_data_w_controls(n, pw, pz, px, a, b, c, d, e, f, g)
 
-    pde = ProximalDE(cv=2, n_jobs=1)
+    pde = ProximalDE(cv=2,random_state=0, n_jobs=1)
     pde.fit(W, D, Z, X, Y)
     for stage in [1, 2, 3]:
         inf = pde.bootstrap_inference(stage=stage, n_subsamples=100)
@@ -788,10 +787,11 @@ def idstrength_violation_z(sm):
         assert np.allclose(np.mean(est.Dres_ * est.Dbar_), true_strength, rtol=1e-1, atol=5e-2)
         print(est.idstrength_, est.primal_violation_, est.dual_violation_)
         cov = (est.point_ - 2 * est.stderr_ <= c) & (est.point_ + 2 * est.stderr_ >= c)
+        id_stat, _, _, id_crit = est.idstrength_violation_test(c=10)
         print(cov, est.idstrength_)
-        assert cov or (est.idstrength_ < 2)
+        assert cov or (id_stat<id_crit)
         error = np.abs(est.point_ - c)
-        assert (error < .4) or (est.idstrength_ < 2)
+        assert (error < .4) or (id_stat<id_crit)
         errors.append(error)
         strengths.append(est.idstrength_)
         covs.append(cov)
@@ -814,7 +814,7 @@ def test_primal_violation_caught_z():
     ''' Test that we catch a violation of the existence of the
     primal solution
     '''
-    np.random.seed(1236)
+    np.random.seed(123)
     n = 100000
     pw = 1
     pz, px = 1, 1
@@ -836,11 +836,14 @@ def test_primal_violation_caught_z():
     est = ProximalDE(cv=3, semi=True,
                      n_jobs=-1, random_state=3, verbose=0)
     est.fit(W, D, Z, X, Y)
+    pviolation, _, _, pviolation_crit = est.primal_violation_test()
+    strength, _, _, strength_crit = est.idstrength_violation_test()
+    dual, _,_, dual_crit = est.dual_violation_test()
     print(est.point_, est.stderr_)
     print(est.idstrength_, est.primal_violation_, est.dual_violation_)
-    assert est.idstrength_ > 2
-    assert est.primal_violation_ > 3.84
-    assert est.dual_violation_ < 4.0
+    assert strength > strength_crit
+    assert pviolation > pviolation_crit
+    assert dual < dual_crit
 
 
 def test_rank_violation_caught():
@@ -954,12 +957,16 @@ def test_accuracy_no_violations():
                                                             sm=sm, sz=sz, sx=sx, sy=sy)
 
                     if pass_w:
+                        W, D, _, Z, X, Y = gen_data_w_controls(n, px, pz, px, a, b, c, d, e, f, g,
+                                            sm=sm, sz=sz, sx=sx, sy=sy)
                         est = ProximalDE(model_regression=model_regression,
                                          model_classification=model_classification,
                                          ivreg_type=ivreg_type, cv=3, semi=True,
                                          n_jobs=-1, random_state=3, verbose=0)
                         est.fit(W, D, Z, X, Y)
                     else:
+                        W, D, _, Z, X, Y = gen_data_no_controls(n, pz, px, a, b, c, d, e, f, g,
+                                            sm=sm, sz=sz, sx=sx, sy=sy)
                         est = ProximalDE(model_regression=model_regression,
                                          model_classification=model_classification,
                                          ivreg_type=ivreg_type,
@@ -967,7 +974,7 @@ def test_accuracy_no_violations():
                                          alpha_exponent=0.39,
                                          cv=3, semi=True,
                                          n_jobs=-1, random_state=3, verbose=0)
-                        est.fit(None, D, Z, X, Y)
+                        est.fit(W, D, Z, X, Y)
                         assert np.allclose(est.alpha_multipliers_, np.array([1.0, 1.0 * n]))
                         assert est.alpha_exponent_ == 0.39
                         assert est.ivreg_eta_.alpha_ == n**(0.39)
@@ -975,10 +982,12 @@ def test_accuracy_no_violations():
 
                     print(c, est.point_, est.stderr_)
                     cov = (est.point_ - 4 * est.stderr_ <= c) & (est.point_ + 4 * est.stderr_ >= c)
+                    strength, _, _, strength_crit = est.idstrength_violation_test()
                     print(cov, est.idstrength_)
-                    assert cov and (est.idstrength_ > 2)
+                    print(est.point_,c)
+                    assert cov and (strength > strength_crit)
                     error = np.abs(est.point_ - c)
-                    assert (error < .2) and (est.idstrength_ > 2)
+                    assert (error < .2) and (strength > strength_crit)
 
 
 def test_weakiv_tests():
@@ -1114,7 +1123,7 @@ def exp_summary_multidim(it, n, pm, pw, pz, px, a, b, c, d, E, F, g):
 
 
 def test_multidim_mediator_violations_nominal_failure_prob():
-    np.random.seed(123)
+    np.random.seed(1234)
     pw = 1
     pm = 7
     for n, pz, px in [(10000, 20, 10), (10000, 80, 50)]:

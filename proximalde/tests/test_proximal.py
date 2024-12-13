@@ -1123,7 +1123,7 @@ def exp_summary_multidim(it, n, pm, pw, pz, px, a, b, c, d, E, F, g):
 
 
 def test_multidim_mediator_violations_nominal_failure_prob():
-    np.random.seed(1234)
+    np.random.seed(123)
     pw = 1
     pm = 7
     for n, pz, px in [(10000, 20, 10), (10000, 80, 50)]:

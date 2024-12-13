@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 
 
 def fit_predict_single(X, Y, isbinary, model_regression, model_classification, cv, semi):
-    ''' Runs a single cross-fit prediction.
+    """Runs a single cross-fit prediction.
 
     Parameters
     ----------
@@ -37,14 +37,16 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
     -------
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.
-    '''
+    """
     model = model_classification if isbinary else model_regression
 
     if semi:
         model = clone(model).fit(X, Y)
-        if not hasattr(model, 'best_estimator_'):
-            raise AttributeError("When `semi=True`, the `model` object needs "
-                                 "to have attribute `best_estimator_` after being fitted.")
+        if not hasattr(model, "best_estimator_"):
+            raise AttributeError(
+                "When `semi=True`, the `model` object needs "
+                "to have attribute `best_estimator_` after being fitted."
+            )
         model = clone(model.best_estimator_)
     else:
         model = clone(model)
@@ -56,7 +58,7 @@ def fit_predict_single(X, Y, isbinary, model_regression, model_classification, c
 
 
 def fit_predict(X, Y, isbinary, model_regression, model_classification, cv, semi, n_jobs, verbose):
-    ''' Produce out-of-fold predictions of `Y`. Allows for either multitasking
+    """Produce out-of-fold predictions of `Y`. Allows for either multitasking
     or for separate fitting for each target in `Y`, when `Y` contains many
     targets.
 
@@ -95,13 +97,13 @@ def fit_predict(X, Y, isbinary, model_regression, model_classification, cv, semi
     -------
     cvpreds : array same shape as `Y`
         Out-of-fold predictions for each input sample.
-    '''
-    if len(Y.squeeze().shape) == 1:
-        return fit_predict_single(X, Y.ravel(), isbinary[0], model_regression, model_classification,
-                                  cv, semi).reshape(Y.shape)
+    """
+    if len(Y.shape) == 1:
+        return fit_predict_single(
+            X, Y.ravel(), isbinary[0], model_regression, model_classification, cv, semi
+        ).reshape(Y.shape)
     else:
-        Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(
-            delayed(fit_predict_single)(X, Y[:, i], isbinary[i], model_regression, model_classification,
-                                        cv, semi)
+        Ypreds = Parallel(n_jobs=n_jobs, verbose=verbose)(delayed(fit_predict_single)(
+            X, Y[:, i], isbinary[i], model_regression, model_classification, cv, semi)
             for i in range(Y.shape[1]))
         return np.column_stack(Ypreds)

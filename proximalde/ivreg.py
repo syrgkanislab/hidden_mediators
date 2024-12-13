@@ -133,81 +133,6 @@ class Regularized2SLS(BaseEstimator):
 
         return self
 
-
-class RegularizedDualIVSolver(BaseEstimator):
-    ''' Finds an l2-regularized solution to the system
-        E[QQ'] coef = E[X D]
-    using cross-validation based on out-of-sample moment violation
-        ||E[(D - coef'Q) X]||_{infty}
-    Here X can be thought as an instrument, Q as an endogenous
-    treatment and D as an outcome. Calculation assumes that Q, X
-    satisfy that E[QX'] = E[QQ'].
-    '''
-    def __init__(self, *, alphas,
-                 cv=5,
-                 random_state=None):
-        self.alphas = alphas
-        self.cv = cv
-        self.random_state = random_state
-
-    def fit(self, X, Q, D):
-        ''' Fit linear system solution
-
-        Parameters
-        ----------
-        X : array (n, pz) or (n,)
-        Q : array (n, pd) or (n,)
-        D : array (n, 1) or (n,)
-
-        Returns
-        -------
-        self : object
-        '''
-        X, Q, D = _check_input(X, Q, D)
-        assert D.shape[1] == 1, "D should be scalar!"
-
-        # regularized first stage with cross-fitting
-        self.cv_ = check_cv(self.cv)
-        if hasattr(self.cv_, 'shuffle'):
-            self.cv_.shuffle = True
-        if hasattr(self.cv_, 'random_state'):
-            self.cv_.random_state = self.random_state
-        splits = list(self.cv_.split(Q, D))
-
-        if len(self.alphas) > 1:
-            alpha_best = 0
-            best_violation = np.inf
-            for alpha in self.alphas:
-                Dbar = np.zeros(D.shape)
-                for train, test in splits:
-                    ntrain = len(train)
-                    JD = Q[train].T @ Q[train] / Q[train].shape[0]
-                    JD += np.eye(Q[train].shape[1]) * (alpha / ntrain)
-                    JDinv = scipy.linalg.pinvh(JD)
-                    coef = JDinv @ (X[train].T @ D[train] / X[train].shape[0])
-                    Dbar[test] = D[test] - Q[test] @ coef
-                violation = np.linalg.norm(np.mean(Dbar * X, axis=0), ord=np.inf)
-                if violation < best_violation:
-                    best_violation = violation
-                    alpha_best = alpha
-        else:
-            alpha_best = self.alphas[0]
-
-        # Calculate coef using the best penalty choice
-        JD = Q.T @ Q / Q.shape[0] + np.eye(Q.shape[1]) * (alpha_best / Q.shape[0])
-        JDinv = scipy.linalg.pinvh(JD)
-        coef = JDinv @ (X.T @ D / X.shape[0])
-        inf = X * (D - Q @ coef).reshape(-1, 1)
-        inf = inf @ JDinv.T
-
-        # Storing class attributes
-        self.coef_ = coef.flatten()
-        self.alpha_ = alpha_best
-        self.inf_ = inf
-
-        return self
-
-
 def advIV(Z, X, Y, alpha):
     n = Z.shape[0]
     XZ = X.T @ Z / n
@@ -221,7 +146,6 @@ def advIV(Z, X, Y, alpha):
     inf = Q * Y - Q * (X @ coef)
     inf = inf @ Jinv.T
     return coef, Q, inf
-
 
 class AdvIV(BaseEstimator):
     ''' Regularized Adversarial IV estimation
@@ -284,3 +208,4 @@ class AdvIV(BaseEstimator):
         self.inf_ = inf
 
         return self
+    

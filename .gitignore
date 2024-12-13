@@ -1,4 +1,11 @@
-# Byte-compiled / optimized / DLL files
+# Intermediary data and results 
+/results/*
+/data/*
+
+# Ignore misc. expermental run scripts
+run*.py
+
+# # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class

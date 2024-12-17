@@ -12,7 +12,8 @@ from .crossfit import fit_predict
 from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
-from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
+from .utilities import _check_input, svd_critical_value, existence_test_statistic, CVWrapper,\
+    XGBRegressorWrapper, XGBClassifierWrapper
 
 
 def residualizeW(W, D, Z, X, Y, *,
@@ -120,6 +121,7 @@ def residualizeW(W, D, Z, X, Y, *,
 def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
                        alpha_multipliers=np.array([1.0]),
                        alpha_exponent=0.3,
+                       heuristic=False,
                        cv=5, n_jobs=-1, verbose=0, random_state=None):
     '''
     Estimate regularized nuisance parameters eta and gamma that
@@ -177,21 +179,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
     # calculate out-of-sample moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
-    ntest = len(test)
-    ntrain = len(train)
-    ivreg_train = clone(ivreg_eta).fit(DZres[train], DXres[train], Yres[train])
-    # Estimate of projection matrix E[(D;Z) (D;X)'] E[(D;Z) (D;X)']^+
-    # using a regularized SVD decomposition
-    U, S, _ = scipy.linalg.svd((DZres[train].T @ DXres[train]) / ntrain, full_matrices=False)
-    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
-    primal_phi = DZres * (Yres - DXres @ ivreg_train.coef_.reshape(-1, 1))
-    primal_phi[train] = primal_phi[train] @ P.T
-    primal_moments = np.mean(primal_phi[test], axis=0)
-    primal_phi[test] = primal_phi[test] - primal_moments.reshape(1, -1)
-    primal_cov = primal_phi[test].T @ primal_phi[test] / ntest**2
-    primal_cov += primal_phi[train].T @ primal_phi[train] / ntrain**2
-    primal_violation_stat = primal_moments.T @ scipy.linalg.pinvh(primal_cov) @ primal_moments
+    primal_violation_stat = existence_test_statistic(DZres, DXres, Yres, ivreg_eta, random_state)
 
     # train on all the data to get coefficient eta
     ivreg_eta.fit(DZres, DXres, Yres)
@@ -229,22 +217,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
         raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
 
     # calculate out-of-sample dual moment violation statistic
-    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
-    ntest = len(test)
-    ntrain = len(train)
-    ivreg_train = clone(ivreg_gamma).fit(Xres[train], dualIV[train], Dres[train])
-    # Estimate of projection matrix E[XZ] E[ZX]^+
-    # using a regularized SVD decomposition
-    U, S, _ = scipy.linalg.svd((Xres[train].T @ dualIV[train]) / ntrain, full_matrices=False)
-    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
-    Dbar = Dres - dualIV @ ivreg_train.coef_.reshape(-1, 1)
-    dual_phi = Xres * Dbar
-    dual_phi[train] = dual_phi[train] @ P.T
-    dual_moments = np.mean(dual_phi[test], axis=0)
-    dual_phi[test] = dual_phi[test] - dual_moments.reshape(1, -1)
-    dual_cov = (dual_phi[test].T @ dual_phi[test]) / ntest**2
-    dual_cov += (dual_phi[train].T @ dual_phi[train]) / ntrain**2
-    dual_violation_stat = dual_moments.T @ scipy.linalg.pinvh(dual_cov) @ dual_moments
+    dual_violation_stat = existence_test_statistic(Xres, dualIV, Dres, ivreg_gamma, random_state)
 
     # train on all the data to get coefficient gamma
     ivreg_gamma.fit(Xres, dualIV, Dres)
@@ -253,15 +226,45 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     Dbar = Dres - dualIV @ gamma
 
     # standardized strength of jacobian that goes into the denominator
-    idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
-    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar)
-    der = np.mean(Dres * dualIV, axis=0)
-    inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
+    if heuristic:
+        inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar)
+        der = np.mean(Dres * dualIV, axis=0)
+        inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1) 
+        idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
+    else:
+        J = - Dres
+        ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+        ivreg_zeta.fit(dualIV, Xres, J)
+        zeta = ivreg_zeta.coef_.reshape(-1, 1)
+        idstrength = np.mean((Dres + Xres @ zeta) * Dbar)
+        inf_idstrength = (Dres + Xres @ zeta) * Dbar - idstrength
+        idstrength = np.sqrt(nobs) * np.abs(idstrength)
+
     idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
+
+    # calculating debiased parameter for weakIV F-test
+    weakiv_pi = np.mean(Dres * Dbar) / np.mean(Dbar**2)
+    inf_pi = Dbar * (Dres - weakiv_pi * Dbar)
+
+    if heuristic:
+        der = - np.mean(dualIV * (Dres - weakiv_pi * Dbar), axis=0)
+        der += weakiv_pi * np.mean(Dbar * dualIV, axis=0)
+        inf_pi += ivreg_gamma.inf_ @ der.reshape(-1, 1)
+    else:
+        J = 2 * weakiv_pi * (Dres - Dbar) - Dres
+        ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+        ivreg_zeta.fit(dualIV, Xres, J)
+        weakiv_zeta = ivreg_zeta.coef_.reshape(-1, 1)
+        weakiv_pi = np.mean((Dres + Xres @ weakiv_zeta) * Dbar) / np.mean(Dbar**2)
+        inf_pi = Dbar * (Dres - weakiv_pi * Dbar + Xres @ weakiv_zeta)
+
+    inf_pi = np.mean(Dbar**2)**(-1) * inf_pi
+
+    weakiv_pi_var = np.mean(inf_pi**2) / inf_pi.shape[0]
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
-        ivreg_eta, ivreg_gamma, dualIV
+        ivreg_eta, ivreg_gamma, dualIV, weakiv_pi, weakiv_pi_var
 
 
 def estimate_final(Dbar, Dres, Ybar):
@@ -287,17 +290,20 @@ def estimate_final(Dbar, Dres, Ybar):
 
 def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
+                 heuristic=False,
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
     ''' Estimate nuisance parameters eta and gamma and then estimate
     target parameter using the nuisances.
     '''
     # estimate the nuisance coefficients that are required
     # for the orthogonal moment
-    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std, _, _, _ = \
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std, _, _, _,\
+        weakiv_pi, weakiv_pi_var = \
         estimate_nuisances(Dres, Zres, Xres, Yres,
                            dual_type=dual_type, ivreg_type=ivreg_type,
                            alpha_multipliers=alpha_multipliers,
                            alpha_exponent=alpha_exponent,
+                           heuristic=heuristic,
                            cv=cv, n_jobs=n_jobs,
                            verbose=verbose,
                            random_state=random_state)
@@ -305,8 +311,8 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
     # estimate target parameter using the orthogonal moment
     point_debiased, std_debiased, inf = estimate_final(Dbar, Dres, Ybar)
 
-    return point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, \
-        eta, gamma, inf, Dbar, Ybar
+    return point_debiased, std_debiased, idstrength, idstrength_std,\
+        point_pre, std_pre, eta, gamma, inf, Dbar, Ybar, weakiv_pi, weakiv_pi_var
 
 
 def proximal_direct_effect(W, D, Z, X, Y, *,
@@ -315,6 +321,7 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
                            binary_D=True, binary_Z=[], binary_X=[], binary_Y=False,
                            dual_type='Z', ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
+                           heuristic=False,
                            cv=5, semi=True, n_jobs=-1,
                            verbose=0, random_state=None):
     '''
@@ -340,6 +347,8 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     alpha_exponent: float, optional (default=0.3)
         The power of the sample size, with which the regularization weight
         scales, when estimating the nuisance parameters eta and gamma.
+    heuristic: bool, optional (default=False)
+        Whether to use heuristic calculation for identification strength test
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
@@ -364,18 +373,20 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
                      n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
-    point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre, *_ = \
+    point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre,\
+        _, _, _, _, _, weakiv_pi, weakiv_pi_var = \
         second_stage(Dres, Zres, Xres, Yres,
                      dual_type=dual_type, ivreg_type=ivreg_type,
                      alpha_multipliers=alpha_multipliers,
                      alpha_exponent=alpha_exponent,
+                     heuristic=heuristic,
                      cv=cv, n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
     # reporting point estimate and standard error of Controlled Direct Effect
     # and R^ performance of nuisance models
     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
-        idstrength, idstrength_std, point_pre, std_pre
+        idstrength, idstrength_std, point_pre, std_pre, weakiv_pi, weakiv_pi_var
 
 
 def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
@@ -477,6 +488,9 @@ class ProximalDE(BaseEstimator):
     alpha_exponent: float, optional (default=0.3)
         The power of the sample size, with which the regularization weight
         scales, when estimating the nuisance parameters eta and gamma.
+    heuristic: bool, optional (default=False)
+        Whether to use heurstic influence calculation in the construction
+        of the test statistics for weak identification.
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
@@ -498,6 +512,7 @@ class ProximalDE(BaseEstimator):
                  ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]),
                  alpha_exponent=0.3,
+                 heuristic=False,
                  cv=5,
                  semi=True,
                  n_jobs=-1,
@@ -513,6 +528,7 @@ class ProximalDE(BaseEstimator):
         self.ivreg_type = ivreg_type
         self.alpha_multipliers = alpha_multipliers
         self.alpha_exponent = alpha_exponent
+        self.heuristic = heuristic
         self.cv = cv
         self.semi = semi
         self.n_jobs = n_jobs
@@ -567,11 +583,13 @@ class ProximalDE(BaseEstimator):
         # E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
         # E[(Dres - gamma'Zres) Xres] = 0
         Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation, dual_violation, \
-            idstrength, idstrength_std, ivreg_eta, ivreg_gamma, dualIV = \
+            idstrength, idstrength_std, ivreg_eta, ivreg_gamma, dualIV,\
+            weakiv_pi, weakiv_pi_var = \
             estimate_nuisances(Dres, Zres, Xres, Yres,
                                dual_type=self.dual_type, ivreg_type=self.ivreg_type,
                                alpha_multipliers=self.alpha_multipliers,
                                alpha_exponent=self.alpha_exponent,
+                               heuristic=self.heuristic,
                                cv=self.cv, n_jobs=self.n_jobs,
                                verbose=self.verbose,
                                random_state=self.random_state)
@@ -596,6 +614,7 @@ class ProximalDE(BaseEstimator):
         self.ivreg_type_ = self.ivreg_type
         self.alpha_multipliers_ = self.alpha_multipliers
         self.alpha_exponent_ = self.alpha_exponent
+        self.heuristic_ = self.heuristic
         self.cv_ = self.cv
         self.semi_ = self.semi
         self.W_ = W
@@ -624,10 +643,13 @@ class ProximalDE(BaseEstimator):
         self.stderr_ = std_debiased
         self.idstrength_ = idstrength
         self.idstrength_std_ = idstrength_std
+        self.weakiv_pi_ = weakiv_pi
+        self.weakiv_pi_var_ = weakiv_pi_var
         self.ivreg_eta_ = ivreg_eta
         self.ivreg_gamma_ = ivreg_gamma
         self.dualIV_ = dualIV
         self.inf_ = inf
+        self.random_state_ = self.random_state
 
         return self
 
@@ -682,7 +704,8 @@ class ProximalDE(BaseEstimator):
                 ub = g if ub < g else ub
         return lb, ub
 
-    def weakiv_test(self, *, alpha=0.05, tau=0.1, decimals=4, return_pi_and_var=False):
+    def weakiv_test(self, *, alpha=0.05, tau=0.1, decimals=4,
+                    return_pi_and_var=False):
         ''' Simplification of the effective first stage F-test for the case
         of only one instrument. Performs a first stage effective F-test with
         `Dbar` as the instrument, and `Dres` as the treatment. Measures the strength
@@ -720,18 +743,8 @@ class ProximalDE(BaseEstimator):
             `gamma` that goes into `Dbar`.
         '''
         self._check_is_fitted()
-        pi = np.mean(self.Dres_ * self.Dbar_) / np.mean(self.Dbar_**2)
-        inf_pi = self.Dbar_ * (self.Dres_ - pi * self.Dbar_)
-        der = - np.mean(self.dualIV_ * (self.Dres_ - pi * self.Dbar_), axis=0)
-        der += pi * np.mean(self.Dbar_ * self.dualIV_, axis=0)
-        inf_pi += self.ivreg_gamma_.inf_ @ der.reshape(-1, 1)
-        inf_pi = np.mean(self.Dbar_**2)**(-1) * inf_pi
-        # removed this debiasing as it didn't seem to improve results empirical
-        pi = np.mean(inf_pi) + pi  # debiasing point estimate
-        var_pi = np.mean(inf_pi**2) / inf_pi.shape[0]
-        # moment is E[(D-gamma Z) (D - pi (D - gamma Z))]
-        # derivative with gamma is -E[Z (D - pi (D - gamma Z))] + E[(D-gamma Z) * pi * Z]
-
+        pi = self.weakiv_pi_
+        var_pi = self.weakiv_pi_var_
         weakiv_stat = pi**2 / var_pi
         weakiv_crit = scipy.stats.ncx2(df=1, nc=1 / tau).ppf(1 - alpha)
         weakiv_pval = scipy.stats.ncx2(df=1, nc=1 / tau).sf(weakiv_stat)
@@ -761,7 +774,7 @@ class ProximalDE(BaseEstimator):
         reject as non-zero.
 
         The upper bound is sqrt(sum_{ij} f_ij^2) where he quantities fij are
-        fij = En[XiZj'] - E[XiZj'] and follow approximately a multivariate normal distribution
+        fij = En[XiZj] - E[XiZj] and follow approximately a multivariate normal distribution
         with a covariance V that can be approximated by an empirical covariance.
         The sum of their squares sum_{ij} fij^2, follows the weighted sum of p independent chi2(1)
         distributions (with p rows of V), with weights the eigenvalues of V.
@@ -1170,6 +1183,7 @@ class ProximalDE(BaseEstimator):
                                   ivreg_type=self.ivreg_type_,
                                   alpha_multipliers=self.alpha_multipliers_,
                                   alpha_exponent=self.alpha_exponent_,
+                                  heuristic=self.heuristic_,
                                   cv=self.cv_,
                                   n_jobs=1, verbose=0,
                                   random_state=None)
@@ -1208,6 +1222,7 @@ class ProximalDE(BaseEstimator):
                                             ivreg_type=self.ivreg_type_,
                                             alpha_multipliers=self.alpha_multipliers_,
                                             alpha_exponent=self.alpha_exponent_,
+                                            heuristic=self.heuristic_,
                                             cv=self.cv_,
                                             semi=self.semi_,
                                             n_jobs=1, verbose=0,

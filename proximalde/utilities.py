@@ -26,6 +26,56 @@ def covariance(X, Z):
     return (X - X.mean(axis=0, keepdims=True)).T @ (Z - Z.mean(axis=0, keepdims=True)) / X.shape[0]
 
 
+def existence_test_statistic(Z, X, Y, ivreg, random_state=None):
+    ''' Calculates a test statistic for the existence of a solution
+    to an ill-posed linear IV problem.
+        E[Z (Y - X'theta)] = 0
+    Assumes that ivreg is an ell2 regularized adversarial IV estimator
+    of the minimum norm solution to the linear IV problem. The returned
+    statistic should follow a chi2(pz) distribution under the null that
+    a solution exists.
+
+    Parameters
+    ----------
+    Z : ArrayLike[n, pz]
+    X : ArrayLike[n, px]
+    Y : ArrayLike[n,]
+    ivreg : instance of adversarial IV estimator
+    random_state : None or a random seed, optional (default=None)
+
+    Returns
+    -------
+    test_statistic : float
+        The test statistic. Follows chi2(pz) under the null that a
+        solution theta exists.
+    '''
+    nobs = X.shape[0]
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
+    ntest = len(test)
+    ntrain = len(train)
+    ivreg_train = clone(ivreg).fit(Z[train], X[train], Y[train])
+    
+    # Estimate of projection matrix SigmaTilde
+    # using a regularized SVD decomposition
+    Sigma = (Z[train].T @ X[train]) / ntrain
+    CovZ = (Z[train].T @ Z[train]) / len(train)
+    CovZsqrt = scipy.linalg.sqrtm(CovZ)
+    invCovZsqrt = np.linalg.pinv(CovZsqrt)
+    SigmaTilde = invCovZsqrt @ Sigma
+    U, S, _ = scipy.linalg.svd(SigmaTilde, full_matrices=False)
+    P = CovZsqrt @ U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T @ invCovZsqrt
+
+    phi = Z * (Y - X @ ivreg_train.coef_.reshape(-1, 1))
+    phi[train] = phi[train] @ P.T
+    moments = np.mean(phi[test], axis=0)
+    phi[test] = phi[test] - moments.reshape(1, -1)
+    cov = phi[test].T @ phi[test] / ntest**2
+    cov += phi[train].T @ phi[train] / ntrain**2
+    violation_stat = moments.T @ scipy.linalg.pinvh(cov) @ moments
+
+    return violation_stat
+
+
 def svd_critical_value(Z, X, *, alpha=0.05, mc_samples=1000):
     ''' Calculates critical value on the singular values of a covariance
     matrix of a pair of random vectors, above which they can be deemed

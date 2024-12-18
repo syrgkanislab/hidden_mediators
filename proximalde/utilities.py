@@ -26,7 +26,7 @@ def covariance(X, Z):
     return (X - X.mean(axis=0, keepdims=True)).T @ (Z - Z.mean(axis=0, keepdims=True)) / X.shape[0]
 
 
-def existence_test_statistic(Z, X, Y, ivreg, random_state=None):
+def existence_test_statistic(Z, X, Y, ivreg, random_state=None, reg_exponent=0.2):
     ''' Calculates a test statistic for the existence of a solution
     to an ill-posed linear IV problem.
         E[Z (Y - X'theta)] = 0
@@ -42,6 +42,11 @@ def existence_test_statistic(Z, X, Y, ivreg, random_state=None):
     Y : ArrayLike[n,]
     ivreg : instance of adversarial IV estimator
     random_state : None or a random seed, optional (default=None)
+    reg_exponent : float, optional (default=None)
+        The exponent in the regularization of the eignevalues, i.e.
+        we use lambda_j / (lambda_j + n^{-exponent}) when calculating
+        the estimate of the projector in the range of the covariance
+        SigmaTilde.
 
     Returns
     -------
@@ -58,12 +63,12 @@ def existence_test_statistic(Z, X, Y, ivreg, random_state=None):
     # Estimate of projection matrix SigmaTilde
     # using a regularized SVD decomposition
     Sigma = (Z[train].T @ X[train]) / ntrain
-    CovZ = (Z[train].T @ Z[train]) / len(train)
+    CovZ = (Z[train].T @ Z[train]) / ntrain
     CovZsqrt = scipy.linalg.sqrtm(CovZ)
     invCovZsqrt = np.linalg.pinv(CovZsqrt)
     SigmaTilde = invCovZsqrt @ Sigma
     U, S, _ = scipy.linalg.svd(SigmaTilde, full_matrices=False)
-    P = CovZsqrt @ U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T @ invCovZsqrt
+    P = CovZsqrt @ U @ np.diag(S / (S + 1 / ntrain**(reg_exponent))) @ U.T @ invCovZsqrt
 
     phi = Z * (Y - X @ ivreg_train.coef_.reshape(-1, 1))
     phi[train] = phi[train] @ P.T

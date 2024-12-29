@@ -59,7 +59,7 @@ def existence_test_statistic(Z, X, Y, ivreg, random_state=None, reg_exponent=0.2
     ntest = len(test)
     ntrain = len(train)
     ivreg_train = clone(ivreg).fit(Z[train], X[train], Y[train])
-    
+
     # Estimate of projection matrix SigmaTilde
     # using a regularized SVD decomposition
     Sigma = (Z[train].T @ X[train]) / ntrain
@@ -79,6 +79,62 @@ def existence_test_statistic(Z, X, Y, ivreg, random_state=None, reg_exponent=0.2
     violation_stat = moments.T @ scipy.linalg.pinvh(cov) @ moments
 
     return violation_stat
+
+
+def idstrenth_test(Z, X, D, ivreg_gamma, ivreg_zeta, heuristic=False):
+    ''' We want to develop a test for whether
+        E[D (D - Z'gamma)] = 0
+    where gamma is the solution to the IV
+        E[X (D - Z'gamma)] = 0
+    '''
+    nobs = Z.shape[0]
+    Dbar = D - Z @ ivreg_gamma.coef_.reshape(-1, 1)
+    if heuristic:
+        inf_idstrength = D * Dbar - np.mean(D * Dbar)
+        der = np.mean(D * Z, axis=0)
+        inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
+        idstrength = np.sqrt(nobs) * np.abs(np.mean(D * Dbar))
+    else:
+        ivreg_zeta.fit(Z, X, -D)
+        zeta = ivreg_zeta.coef_.reshape(-1, 1)
+        idstrength = np.mean((D + X @ zeta) * Dbar)
+        inf_idstrength = (D + X @ zeta) * Dbar - idstrength
+        idstrength = np.sqrt(nobs) * np.abs(idstrength)
+
+    idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
+    return idstrength, idstrength_std
+
+
+def weakiv_test(Z, X, D, ivreg_gamma, ivreg_zeta, heuristic=False):
+    ''' We want to develop a F-test for whether we have a weak
+    instrument, when the instrument is D - Z'gamma and the treatment
+    is D. So we want to use
+        pi = E[D (D - Z'gamma)] / E[(D - Z'gamma)^2]
+    and var_pi being the variance of the estimate of pi,
+    where gamma is the solution to the IV
+        E[X (D - Z'gamma)] = 0
+    '''
+    Dbar = D - Z @ ivreg_gamma.coef_.reshape(-1, 1)
+
+    weakiv_pi = np.mean(D * Dbar) / np.mean(Dbar**2)
+    inf_pi = Dbar * (D - weakiv_pi * Dbar)
+
+    if heuristic:
+        der = - np.mean(Z * (D - weakiv_pi * Dbar), axis=0)
+        der += weakiv_pi * np.mean(Dbar * Z, axis=0)
+        inf_pi += ivreg_gamma.inf_ @ der.reshape(-1, 1)
+    else:
+        J = 2 * weakiv_pi * (D - Dbar) - D
+        ivreg_zeta.fit(Z, X, J)
+        weakiv_zeta = ivreg_zeta.coef_.reshape(-1, 1)
+        weakiv_pi = np.mean((D + X @ weakiv_zeta) * Dbar) / np.mean(Dbar**2)
+        inf_pi = Dbar * (D - weakiv_pi * Dbar + X @ weakiv_zeta)
+
+    inf_pi = np.mean(Dbar**2)**(-1) * inf_pi
+
+    weakiv_pi_var = np.mean(inf_pi**2) / inf_pi.shape[0]
+
+    return weakiv_pi, weakiv_pi_var
 
 
 def svd_critical_value(Z, X, *, alpha=0.05, mc_samples=1000):

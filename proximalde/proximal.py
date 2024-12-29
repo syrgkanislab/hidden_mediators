@@ -13,7 +13,7 @@ from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input, svd_critical_value, existence_test_statistic, CVWrapper,\
-    XGBRegressorWrapper, XGBClassifierWrapper
+    XGBRegressorWrapper, XGBClassifierWrapper, idstrenth_test, weakiv_test
 
 
 def residualizeW(W, D, Z, X, Y, *,
@@ -226,41 +226,14 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     Dbar = Dres - dualIV @ gamma
 
     # standardized strength of jacobian that goes into the denominator
-    if heuristic:
-        inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar)
-        der = np.mean(Dres * dualIV, axis=0)
-        inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1) 
-        idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
-    else:
-        J = - Dres
-        ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
-        ivreg_zeta.fit(dualIV, Xres, J)
-        zeta = ivreg_zeta.coef_.reshape(-1, 1)
-        idstrength = np.mean((Dres + Xres @ zeta) * Dbar)
-        inf_idstrength = (Dres + Xres @ zeta) * Dbar - idstrength
-        idstrength = np.sqrt(nobs) * np.abs(idstrength)
-
-    idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
+    ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+    idstrength, idstrength_std = idstrenth_test(dualIV, Xres, Dres, ivreg_gamma,
+                                                ivreg_zeta, heuristic)
 
     # calculating debiased parameter for weakIV F-test
-    weakiv_pi = np.mean(Dres * Dbar) / np.mean(Dbar**2)
-    inf_pi = Dbar * (Dres - weakiv_pi * Dbar)
-
-    if heuristic:
-        der = - np.mean(dualIV * (Dres - weakiv_pi * Dbar), axis=0)
-        der += weakiv_pi * np.mean(Dbar * dualIV, axis=0)
-        inf_pi += ivreg_gamma.inf_ @ der.reshape(-1, 1)
-    else:
-        J = 2 * weakiv_pi * (Dres - Dbar) - Dres
-        ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
-        ivreg_zeta.fit(dualIV, Xres, J)
-        weakiv_zeta = ivreg_zeta.coef_.reshape(-1, 1)
-        weakiv_pi = np.mean((Dres + Xres @ weakiv_zeta) * Dbar) / np.mean(Dbar**2)
-        inf_pi = Dbar * (Dres - weakiv_pi * Dbar + Xres @ weakiv_zeta)
-
-    inf_pi = np.mean(Dbar**2)**(-1) * inf_pi
-
-    weakiv_pi_var = np.mean(inf_pi**2) / inf_pi.shape[0]
+    ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
+    weakiv_pi, weakiv_pi_var = weakiv_test(dualIV, Xres, Dres, ivreg_gamma,
+                                           ivreg_zeta, heuristic)
 
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \

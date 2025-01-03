@@ -2,18 +2,23 @@ import numpy as np
 from sklearn.linear_model import LassoCV, Lasso, LogisticRegressionCV, LogisticRegression
 from sklearn.linear_model import Ridge, RidgeCV
 from sklearn.model_selection import check_cv, train_test_split, GridSearchCV
-from sklearn.pipeline import Pipeline
 from sklearn.base import BaseEstimator, clone
 from joblib import Parallel, delayed
 from statsmodels.iolib.table import SimpleTable
 import scipy.stats
 import scipy.linalg
+import pandas as pd
 from .crossfit import fit_predict
-from .ivreg import Regularized2SLS, RegularizedDualIVSolver, AdvIV
+from .ivreg import Regularized2SLS, AdvIV
 from .inference import EmpiricalInferenceResults, NormalInferenceResults
+<<<<<<< HEAD
+from .influence import InfluenceDiagnostics
+from .utilities import _check_input, svd_critical_value, CVWrapper, XGBRegressorWrapper, XGBClassifierWrapper
+=======
 from .diagnostics import IVDiagnostics
 from .utilities import _check_input, svd_critical_value, existence_test_statistic, CVWrapper,\
     XGBRegressorWrapper, XGBClassifierWrapper, idstrenth_test, weakiv_test
+>>>>>>> main
 
 
 def residualizeW(W, D, Z, X, Y, *,
@@ -27,7 +32,7 @@ def residualizeW(W, D, Z, X, Y, *,
                  n_jobs=-1, verbose=0,
                  random_state=None):
     ''' Residualizes W out of all the other variables using cross-fitting
-    and lasso regression models.
+    and lasso or xgb regression models.
     '''
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
 
@@ -118,7 +123,7 @@ def residualizeW(W, D, Z, X, Y, *,
     return Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits
 
 
-def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
+def estimate_nuisances(Dres, Zres, Xres, Yres, *, ivreg_type='adv',
                        alpha_multipliers=np.array([1.0]),
                        alpha_exponent=0.3,
                        heuristic=False,
@@ -133,9 +138,6 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     Both solutions are estimated using a ridge regularized two-stage
     least squares estimation procedure, with first stage cross-fitting.
     Returns quantities Dbar = Dres - gamma'Zres and Ybar = Ybar - eta'Xres
-
-    If dual_type='Q', the moment E[(Dres - gamma'Q) X] is used as the
-    dual, where Q is the projection of X on (D;Z).
 
     The penalty weights in the regularized regressions are chosen via
     cross-validation among the options of the form:
@@ -190,42 +192,64 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     # ``outcome'' for the final stage Neyman orthogonal moment
     Ybar = Yres - Xres @ eta
 
-    if dual_type == 'Q':
-        dualIV = ivreg_eta.Q_[:, 1:]  # this is X projected onto D,Z (i.e. best linear predictor of X from D,Z)
-        alphas = alpha_multipliers * nobs**(alpha_exponent)
-        ivreg_gamma = RegularizedDualIVSolver(alphas=alphas, cv=cv, random_state=random_state)
-    elif dual_type == 'Z':
-        alphas = alpha_multipliers * nobs**(alpha_exponent)
-        dualIV = Zres
-        if ivreg_type == '2sls':
-            ivreg_gamma = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False,
-                                                                                alphas=alphas),
-                                                                model=Ridge(fit_intercept=False),
-                                                                params=['alpha']),
-                                          model_final=RidgeCV(fit_intercept=False,
-                                                              alphas=alphas),
-                                          semi=True,
-                                          cv=cv,
-                                          n_jobs=n_jobs,
-                                          verbose=verbose,
-                                          random_state=random_state)
-        elif ivreg_type == 'adv':
-            ivreg_gamma = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
-        else:
-            raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
+    alphas = alpha_multipliers * nobs**(alpha_exponent)
+    if ivreg_type == '2sls':
+        ivreg_gamma = Regularized2SLS(model_first=CVWrapper(modelcv=RidgeCV(fit_intercept=False,
+                                                                            alphas=alphas),
+                                                            model=Ridge(fit_intercept=False),
+                                                            params=['alpha']),
+                                        model_final=RidgeCV(fit_intercept=False,
+                                                            alphas=alphas),
+                                        semi=True,
+                                        cv=cv,
+                                        n_jobs=n_jobs,
+                                        verbose=verbose,
+                                        random_state=random_state)
+    elif ivreg_type == 'adv':
+        ivreg_gamma = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
     else:
-        raise AttributeError("Unknown `dual_type`. Should be one of {'Q', 'Z'}")
+        raise AttributeError("Unknown `ivreg_type`. Should be one of {'2sls', 'adv'}")
 
     # calculate out-of-sample dual moment violation statistic
+<<<<<<< HEAD
+    train, test = train_test_split(np.arange(nobs), test_size=.3, shuffle=True, random_state=random_state)
+    ntest = len(test)
+    ntrain = len(train)
+    ivreg_train = clone(ivreg_gamma).fit(Xres[train], Zres[train], Dres[train])
+    # Estimate of projection matrix E[XZ] E[ZX]^+
+    # using a regularized SVD decomposition
+    U, S, _ = scipy.linalg.svd((Xres[train].T @ Zres[train]) / ntrain, full_matrices=False)
+    P = U @ np.diag(S / (S + 1 / ntrain**(0.2))) @ U.T
+    Dbar = Dres - Zres @ ivreg_train.coef_.reshape(-1, 1)
+    dual_phi = Xres * Dbar
+    dual_phi[train] = dual_phi[train] @ P.T
+    dual_moments = np.mean(dual_phi[test], axis=0)
+    dual_phi[test] = dual_phi[test] - dual_moments.reshape(1, -1)
+    dual_cov = (dual_phi[test].T @ dual_phi[test]) / ntest**2
+    dual_cov += (dual_phi[train].T @ dual_phi[train]) / ntrain**2
+    dual_violation_stat = dual_moments.T @ scipy.linalg.pinvh(dual_cov) @ dual_moments
+=======
     dual_violation_stat = existence_test_statistic(Xres, dualIV, Dres, ivreg_gamma, random_state)
+>>>>>>> main
 
     # train on all the data to get coefficient gamma
-    ivreg_gamma.fit(Xres, dualIV, Dres)
+    ivreg_gamma.fit(Xres, Zres, Dres)
     gamma = ivreg_gamma.coef_.reshape(-1, 1)
     # ``instrument'' for the final stage Neyman orthogonal moment
-    Dbar = Dres - dualIV @ gamma
+    Dbar = Dres - Zres @ gamma
 
     # standardized strength of jacobian that goes into the denominator
+<<<<<<< HEAD
+    idstrength = np.sqrt(nobs) * np.abs(np.mean(Dres * Dbar))
+    inf_idstrength = Dres * Dbar - np.mean(Dres * Dbar)
+    der = np.mean(Dres * Zres, axis=0)
+    inf_idstrength -= ivreg_gamma.inf_ @ der.reshape(-1, 1)
+    idstrength_std = np.sqrt(np.mean(inf_idstrength**2))
+
+    return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
+        primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
+        ivreg_eta, ivreg_gamma, Zres
+=======
     ivreg_zeta = AdvIV(alphas=alphas, cv=cv, random_state=random_state)
     idstrength, idstrength_std = idstrenth_test(dualIV, Xres, Dres, ivreg_gamma,
                                                 ivreg_zeta, heuristic)
@@ -238,6 +262,7 @@ def estimate_nuisances(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv
     return Dbar, Ybar, eta, gamma, point_pre, std_pre, \
         primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, \
         ivreg_eta, ivreg_gamma, dualIV, weakiv_pi, weakiv_pi_var
+>>>>>>> main
 
 
 def estimate_final(Dbar, Dres, Ybar):
@@ -261,7 +286,7 @@ def estimate_final(Dbar, Dres, Ybar):
     return point_debiased[0, 0], std_debiased, inf.flatten()
 
 
-def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
+def second_stage(Dres, Zres, Xres, Yres, *, ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
                  heuristic=False,
                  cv=5, n_jobs=-1, verbose=0, random_state=None):
@@ -270,10 +295,15 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
     '''
     # estimate the nuisance coefficients that are required
     # for the orthogonal moment
+<<<<<<< HEAD
+    Dbar, Ybar, eta, gamma, point_pre, std_pre, primal_violation_stat, dual_violation_stat, \
+        idstrength, idstrength_std, ivreg_eta, ivreg_gamma, Zres = \
+=======
     Dbar, Ybar, eta, gamma, point_pre, std_pre, _, _, idstrength, idstrength_std, _, _, _,\
         weakiv_pi, weakiv_pi_var = \
+>>>>>>> main
         estimate_nuisances(Dres, Zres, Xres, Yres,
-                           dual_type=dual_type, ivreg_type=ivreg_type,
+                           ivreg_type=ivreg_type,
                            alpha_multipliers=alpha_multipliers,
                            alpha_exponent=alpha_exponent,
                            heuristic=heuristic,
@@ -283,16 +313,21 @@ def second_stage(Dres, Zres, Xres, Yres, *, dual_type='Z', ivreg_type='adv',
 
     # estimate target parameter using the orthogonal moment
     point_debiased, std_debiased, inf = estimate_final(Dbar, Dres, Ybar)
+<<<<<<< HEAD
+    return point_debiased, std_debiased, primal_violation_stat, dual_violation_stat, idstrength, idstrength_std, point_pre, std_pre, \
+        eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar
+=======
 
     return point_debiased, std_debiased, idstrength, idstrength_std,\
         point_pre, std_pre, eta, gamma, inf, Dbar, Ybar, weakiv_pi, weakiv_pi_var
+>>>>>>> main
 
 
 def proximal_direct_effect(W, D, Z, X, Y, *,
                            model_regression='linear',
                            model_classification='linear',
                            binary_D=True, binary_Z=[], binary_X=[], binary_Y=False,
-                           dual_type='Z', ivreg_type='adv',
+                           ivreg_type='adv',
                            alpha_multipliers=np.array([1.0]), alpha_exponent=0.3,
                            heuristic=False,
                            cv=5, semi=True, n_jobs=-1,
@@ -304,9 +339,6 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     binary_Z : list of binary Z's
     binary_X : list of binary X's
     binary_Y : whether Y is binary
-    dual_type: one of {'Z', 'Q'}
-        Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
-        as the dual IV problem to construt the orthogonal instrument Dbar.
     ivreg_type: on of {'2sls', 'adv'}
         Whether to use regularized 2SLS or regularized adversarial IV to
         solve the l2 regularized IV regressions for the nuisances.
@@ -330,14 +362,13 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     random_state: random seed for any internal randomness
     '''
     W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
-
     if D.shape[1] > 1:
         raise AttributeError("D should be a scalar treatment")
     if Y.shape[1] > 1:
         raise AttributeError("Y should be a scalar outcome")
 
     # residualize W from all the variables
-    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, _ = \
+    Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
         residualizeW(W, D, Z, X, Y,
                      model_regression=model_regression,
                      model_classification=model_classification,
@@ -346,10 +377,16 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
                      n_jobs=n_jobs, verbose=verbose,
                      random_state=random_state)
 
+<<<<<<< HEAD
+    point_debiased, std_debiased, primal_violation_stat, dual_violation_stat, \
+        idstrength, idstrength_std, point_pre, std_pre, \
+        eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar = \
+=======
     point_debiased, std_debiased, idstrength, idstrength_std, point_pre, std_pre,\
         _, _, _, _, _, weakiv_pi, weakiv_pi_var = \
+>>>>>>> main
         second_stage(Dres, Zres, Xres, Yres,
-                     dual_type=dual_type, ivreg_type=ivreg_type,
+                     ivreg_type=ivreg_type,
                      alpha_multipliers=alpha_multipliers,
                      alpha_exponent=alpha_exponent,
                      heuristic=heuristic,
@@ -359,7 +396,13 @@ def proximal_direct_effect(W, D, Z, X, Y, *,
     # reporting point estimate and standard error of Controlled Direct Effect
     # and R^ performance of nuisance models
     return point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
+<<<<<<< HEAD
+        idstrength, idstrength_std, point_pre, std_pre, \
+        primal_violation_stat, dual_violation_stat, Dres, Zres, Xres, Yres, \
+        splits, eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar
+=======
         idstrength, idstrength_std, point_pre, std_pre, weakiv_pi, weakiv_pi_var
+>>>>>>> main
 
 
 def _gen_subsamples(n, n_subsamples, fraction, replace, random_state):
@@ -381,17 +424,17 @@ class ProximalDE(BaseEstimator):
     the effect that flows through the direct edge D -> Y. `D` and `Y` are assumed
     to be scalar random variables. The method also assumes a partially linear
     outcome bridge function:
-        h(D, X, W) = c D + eta'X + f(W)
-    where c is the controlled direct effect we want to estimate and h satisfies
+        q(D, X, W) = c D + eta'X + f(W)
+    where c is the controlled direct effect we want to estimate and q satisfies
     the primal IV moment:
-        E[Y - h(D, X, W) | D, Z, W] = 0
+        E[Y - q(D, X, W) | D, Z, W] = 0
     This is satisfied if for instance the following conditional expectations
     are partially linear:
         E[Y|D, M, X, W] = c D + b'M + g'X + f_Y(W)
         E[X|M, W] = F M + f_X(W)
     and that the matrix F has full column rank. The method also assumes that
     the parameter `c` is uniquely identified, even if eta is not. This requires
-    that the dual IV moment E[Z (D - gamma'Z)] admit solution. A sufficient
+    that the dual IV moment E[X (D - gamma'Z)] admit solution. A sufficient
     condition for this, is that the covariance matrix `Cov(M, Z)` has full
     row rank.
 
@@ -409,9 +452,8 @@ class ProximalDE(BaseEstimator):
       E[(Dres - gamma'Zres) Xres] = 0
     The first moment is referred to as the primal IV moment, while the
     second moment as the dual IV moment. Both solutions are estimated using
-    a regularized variations of linear IV regression. If `dual_type='Q'`,
-    the moment `E[(Dres - gamma'Q) X]` is used as the dual, where Q is the
-    projection of `X` on `(D;Z)`. This stage also calculates a regularized target
+    a regularized variations of linear IV regression. 
+    This stage also calculates a regularized target
     parameter `c`, which appears in the primal moment.
 
     3. In the final stage, the method uses the following Neyman orthogonal
@@ -424,6 +466,7 @@ class ProximalDE(BaseEstimator):
     Parameters
     ----------
     model_regression : (BaseEstimator, RegressorMixin) object or one of {'linear', 'xgb'}
+        Model used for regressing controls W. 
         If `linear` then a LassoCV model is used. If `xgb` then an xgboost regressor
         is used with cross-validated learning rate and earlystopping. If an object
         is passed, then it should inherit the functionality of an sklearn BaseEstimator
@@ -431,6 +474,7 @@ class ProximalDE(BaseEstimator):
         attribute `best_estimator_` after being fitted, that contains an instance of the object
         with the best chosen hyperaparameters.
     model_classification : : (BaseEstimator, ClassifierMixin) object or one of {'linear', 'xgb'}
+        Model used for regressing controls W. 
         If `linear` then a LogisticRegressionCV(penalty='l1') model is used.
         If `xgb` then an xgboost classifier is used with cross-validated learning rate
         and earlystopping. If an object is passed, then it should inherit the functionality
@@ -445,9 +489,6 @@ class ProximalDE(BaseEstimator):
         List of X's that are binary
     binary_Y : bool, optional (default=False)
         Whether Y is binary
-    dual_type: one of {'Z', 'Q'}, optional (default='Z')
-        Whether to use E[X (D - gamma'Q)] or E[X (D - gamma'Z)]
-        as the dual IV problem to construt the orthogonal instrument Dbar.
     ivreg_type: one of {'2sls', 'adv'}, optional (default='adv')
         Whether to use regularized 2SLS or regularized adversarial IV to
         solve the l2 regularized IV regressions for the nuisances.
@@ -467,8 +508,6 @@ class ProximalDE(BaseEstimator):
     cv: fold option for cross-fitting (e.g. number of folds).
         See `sklearn.model_selection.check_cv` for options.
     semi: whether to perform semi-crossfitting (for penalty choice tuning)
-    multitask: whether to use multitask models when predicting
-        multivariate targets
     n_jobs: number of jobs for internal parallel loops
     verbose: degree of verbosity
     random_state: random seed for any internal randomness
@@ -481,7 +520,6 @@ class ProximalDE(BaseEstimator):
                  binary_Z=[],
                  binary_X=[],
                  binary_Y=False,
-                 dual_type='Z',
                  ivreg_type='adv',
                  alpha_multipliers=np.array([1.0]),
                  alpha_exponent=0.3,
@@ -497,7 +535,6 @@ class ProximalDE(BaseEstimator):
         self.binary_Z = binary_Z
         self.binary_X = binary_X
         self.binary_Y = binary_Y
-        self.dual_type = dual_type
         self.ivreg_type = ivreg_type
         self.alpha_multipliers = alpha_multipliers
         self.alpha_exponent = alpha_exponent
@@ -529,27 +566,35 @@ class ProximalDE(BaseEstimator):
         -------
         self : object
         '''
+        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
+
         # if diagnostics were previously run after some previous fit then we
         # need to make those diagnostics invalid, since we are refitting
         if hasattr(self, 'diag_'):
             del (self.diag_)
 
-        W, D, Z, X, Y = _check_input(W, D, Z, X, Y)
-
-        if D.shape[1] > 1:
-            raise AttributeError("D should be a scalar treatment")
-        if Y.shape[1] > 1:
-            raise AttributeError("Y should be a scalar outcome")
-
-        # residualize W from all the variables
-        Dres, Zres, Xres, Yres, r2D, r2Z, r2X, r2Y, splits = \
-            residualizeW(W, D, Z, X, Y,
-                         model_regression=self.model_regression,
+        # 1. residualize W from all the variables
+        # 2. estimate the nuisance coefficients that solve the moments
+        #   E[(Yres - eta'Xres - c*Dres) (Dres; Zres)] = 0
+        #   E[(Dres - gamma'Zres) Xres] = 0 
+        # 3. Final moment solution: solve for c the equation
+        #   E[(Yres - eta'Xres - c * Dres) (Dres - gamma'Zres)] = 0
+        point_debiased, std_debiased, r2D, r2Z, r2X, r2Y, \
+            idstrength, idstrength_std, point_pre, std_pre, \
+            primal_violation, dual_violation, Dres, Zres, Xres, Yres, \
+            splits, eta, gamma, ivreg_eta, ivreg_gamma, Zres, inf, Dbar, Ybar = \
+                        proximal_direct_effect(W, D, Z, X, Y, 
+                        model_regression=self.model_regression,
                          model_classification=self.model_classification,
                          binary_D=self.binary_D, binary_Z=self.binary_Z,
                          binary_X=self.binary_X, binary_Y=self.binary_Y,
-                         cv=self.cv, semi=self.semi,
+                         cv=self.cv, semi=self.semi, ivreg_type=self.ivreg_type,
                          n_jobs=self.n_jobs, verbose=self.verbose,
+<<<<<<< HEAD
+                         random_state=self.random_state,
+                         alpha_exponent=self.alpha_exponent,
+                         alpha_multipliers=self.alpha_multipliers)
+=======
                          random_state=self.random_state)
 
         # estimate the nuisance coefficients that solve the moments
@@ -570,6 +615,7 @@ class ProximalDE(BaseEstimator):
         # Final moment solution: solve for c the equation
         #   E[(Yres - eta'Xres - c * Dres) (Dres - gamma'Zres)] = 0
         point_debiased, std_debiased, inf = estimate_final(Dbar, Dres, Ybar)
+>>>>>>> main
 
         # Storing fitted parameters and training data as
         # properties of the class
@@ -583,7 +629,6 @@ class ProximalDE(BaseEstimator):
         self.binary_Z_ = self.binary_Z
         self.binary_X_ = self.binary_X
         self.binary_Y_ = self.binary_Y
-        self.dual_type_ = self.dual_type
         self.ivreg_type_ = self.ivreg_type
         self.alpha_multipliers_ = self.alpha_multipliers
         self.alpha_exponent_ = self.alpha_exponent
@@ -620,7 +665,7 @@ class ProximalDE(BaseEstimator):
         self.weakiv_pi_var_ = weakiv_pi_var
         self.ivreg_eta_ = ivreg_eta
         self.ivreg_gamma_ = ivreg_gamma
-        self.dualIV_ = dualIV
+        self.dualIV_ = Zres
         self.inf_ = inf
         self.random_state_ = self.random_state
 
@@ -682,8 +727,8 @@ class ProximalDE(BaseEstimator):
         ''' Simplification of the effective first stage F-test for the case
         of only one instrument. Performs a first stage effective F-test with
         `Dbar` as the instrument, and `Dres` as the treatment. Measures the strength
-        of the identification of the target parameter.
-        See proximalde.ivtests.weakiv_tests for more information on these tests.
+        of the identification of the target parameter. This is the identification strength test 
+        (a), the effective F-test mentioned in the paper. 
         See also here:
         https://scholar.harvard.edu/files/stock/files/nbersi2018_methods_lectures_weakiv1-2_v4.pdf
 
@@ -827,9 +872,8 @@ class ProximalDE(BaseEstimator):
 
     def dual_violation_test(self, *, alpha=0.05, decimals=4):
         ''' Test that the primal moment
-            E[(Dres - gamma'dualIV) Xres] = 0
-        admits a solution, where `dualIV` is `Zres` if `dual_type='Z'`
-        or is `Q` (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`.
+            E[(Dres - gamma'Zres) Xres] = 0
+        admits a solution.
 
         Parameters
         ----------
@@ -863,10 +907,10 @@ class ProximalDE(BaseEstimator):
 
     def idstrength_violation_test(self, *, alpha=0.05, c=0.0, decimals=4):
         ''' Test of the null hypothesis that
-            E[Dres (Dres - gamma'dualIV)] = 0
+            E[Dres (Dres - gamma'Zres)] = 0
         Identification requires that this null hypothesis be rejected.
-        Where `dualIV` is `Zres` if `dual_type='Z'` or is `Q`
-        (the projection of Xres on (Dres; Zres)) if `dual_type='Q'`.
+        This is the identification strength test (b), the z-test mentioned in the 
+        paper. 
 
         Parameters
         ----------
@@ -907,7 +951,7 @@ class ProximalDE(BaseEstimator):
         strength_crit = np.round(dist.ppf(1 - alpha), decimals)
         return strength, strength_dist, strength_pval, strength_crit
 
-    def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4):
+    def summary(self, *, alpha=0.05, tau=0.1, c=0.0, value=0, decimals=4, save_dir=''):
         '''
         Parameters
         ----------
@@ -925,6 +969,8 @@ class ProximalDE(BaseEstimator):
             Value to test for hypothesis testing and p-values
         decimals : int, optional (default=4)
             Number of decimal points for floats and precision for scientific formats
+        save_dir: str, optional (default='')
+            Directory to save the tables under.
 
         Returns
         -------
@@ -959,8 +1005,10 @@ class ProximalDE(BaseEstimator):
                         [strength_pval, pviolation_pval, dviolation_pval, weakiv_pval],
                         [strength_crit, pviolation_crit, dviolation_crit, weakiv_crit],
                         ['statistic > critical', 'statistic < critical',
-                         'statistic < critical', 'statistic > critical']]).T
-        headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal']
+                         'statistic < critical', 'statistic > critical'],
+                         [strength > strength_crit, pviolation < pviolation_crit,
+                          dviolation < dviolation_crit, weakiv_stat > weakiv_crit]]).T
+        headers = ['statistic', 'null-distribution', 'p-value', 'critical value', 'ideal', 'pass test']
         index = ['id_strength^1', 'primal_violation^2', 'dual_violation^3', 'weakIV_Ftest^4']
         sm.tables.append(SimpleTable(res, headers, index,
                                      "Tests for weak ID and moment violation"))
@@ -973,13 +1021,11 @@ class ProximalDE(BaseEstimator):
             'With $e=\\tilde{Y} - \\tilde{X}^\\top \\eta - \\tilde{D}c$ '
             'and $V=\\tilde{D} - \\gamma^\\top \\tilde{Z}$ and $U = (\\tilde{D};\\tilde{Z})$ '
             'and tilde denoting residual after removing the part predictable from $W$.',
-            '1. Identification strength $\\sqrt{n} |E_n[\\tilde{D} V]|$ ',
+            '1. Identification strength Z-test $\\sqrt{n} |E_n[\\tilde{D} V]|$ ',
             'A small statistic implies that the effect is weakly identified because '
             'the instrument V is too weakly correlated with the treatment.',
             'This can be caused if the mediator is very predictable from the treatment.',
             'The std of this strength accounts for the estimation error of the parameter $\\gamma$, '
-            'but when `dual_type=Q` it does not account for the estimation error of the projection '
-            'matrix that goes into Q. '
             'So in that case the std can potentially be artificially small.',
             '2. Maximum violation of primal moments $n E_n[e U]^\\top E_n[e^2 U U^\\top]^{-1} E_n[e U]$.',
             'Under the null it follows approximately a chi2(dim(z) + 1) distribution',
@@ -992,23 +1038,24 @@ class ProximalDE(BaseEstimator):
             'and implies weak identification. ',
             'For instance, large violation can occur if Z is weakly correlated with the mediator, '
             'while X and D are correlated with the mediator.',
-            '4. Weak IV test with $V$ as the instrument, $\\tilde{D}$ as the treatment '
+            '4. Weak IV F test with $V$ as the instrument, $\\tilde{D}$ as the treatment '
             'and $\\tilde{Y} - \\tilde{X}^\\top \\eta$ as the outcome. ',
             'It estimates the coefficient $\\hat{\\pi}$ of the first stage regression of $\\tilde{D}$ on $V$ '
             'and uses an estimate of the statistic $\\hat{\\pi}^2 / Var(\\hat{\\pi})$',
-            'The test accounts for the estimation error of the parameter $\\gamma$, but when `dual_type=Q` '
-            'it does not account for the estimation error of the projection matrix that goes into Q. '
-            'So in that case the test can potentially be artificially large.'])
+            'The test accounts for the estimation error of the parameter $\\gamma$'])
 
+        if save_dir != '':
+            for i in range(len(sm.tables)):
+                pd.DataFrame(sm.tables[i]).to_csv(save_dir + f'/table{i}.csv')
         return sm
 
-    def run_diagnostics(self):
-        ''' Returns an ``unusual data'' diagnostics object of type `IVDiagnostics`.
+    def run_influence_diagnostics(self):
+        ''' Returns an ``unusual data'' (influence) diagnostics object of type `InfluenceDiagnostics`.
         Can then be used to plot robust statistic diagnostics for the results of
-        the estimation process. See `diagnostics.IVDiagnostics` for more details.
+        the estimation process. See `influence.InfluenceDiagnostics` for more details.
         '''
         self._check_is_fitted()
-        self.diag_ = IVDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
+        self.diag_ = InfluenceDiagnostics(add_constant=False).fit(self.Dbar_, self.Dres_, self.Ybar_)
         return self.diag_
 
     def influential_set(self, max_points=None, alpha=None, use_exact_influence=True,
@@ -1049,7 +1096,7 @@ class ProximalDE(BaseEstimator):
         '''
 
         if not hasattr(self, 'diag_'):
-            raise AttributeError("Please call the `run_diagnostics` method first.")
+            raise AttributeError("Please call the `run_influence_diagnostics` method first.")
 
         point = self.point_
         if use_exact_influence:
@@ -1152,7 +1199,6 @@ class ProximalDE(BaseEstimator):
                                   self.Zres_[sub],
                                   self.Xres_[sub],
                                   self.Yres_[sub],
-                                  dual_type=self.dual_type_,
                                   ivreg_type=self.ivreg_type_,
                                   alpha_multipliers=self.alpha_multipliers_,
                                   alpha_exponent=self.alpha_exponent_,
@@ -1172,7 +1218,7 @@ class ProximalDE(BaseEstimator):
                              n_jobs=-1,
                              verbose=0,
                              random_state=None):
-        self._check_is_fitted()
+        self._check_is_fitted() 
 
         if self.W_ is None:
             raise AttributeError("No first stage was fitted because `W=None`.")
@@ -1191,7 +1237,6 @@ class ProximalDE(BaseEstimator):
                                             binary_Z=self.binary_Z_,
                                             binary_X=self.binary_X_,
                                             binary_Y=self.binary_Y_,
-                                            dual_type=self.dual_type_,
                                             ivreg_type=self.ivreg_type_,
                                             alpha_multipliers=self.alpha_multipliers_,
                                             alpha_exponent=self.alpha_exponent_,
@@ -1266,3 +1311,4 @@ class ProximalDE(BaseEstimator):
             return EmpiricalInferenceResults(self.point_, point_dist), subsamples
         else:
             return EmpiricalInferenceResults(self.point_, point_dist)
+        

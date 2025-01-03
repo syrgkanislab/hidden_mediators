@@ -1,6 +1,7 @@
 # Intermediary data and results 
 /results/*
 /data/*
+/save/*
 
 # Ignore misc. expermental run scripts
 run*.py

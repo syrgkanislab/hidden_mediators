@@ -1,4 +1,4 @@
-# Detecting clinician implicit biases in diagnoses using proximal causal inference [[paper]](https://psb.stanford.edu/psb-online/proceedings/psb25/liu_k.pdf)
+# Detecting clinician implicit biases in diagnoses using proximal causal inference [[paper without appendix]](https://psb.stanford.edu/psb-online/proceedings/psb25/liu_k.pdf)[[full paper]](https://github.com/syrgkanislab/hidden_mediators/blob/main/paper.pdf)
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-%3E%3D3.6-blue.svg)](https://www.python.org/)
